@@ -9,9 +9,11 @@ type GeminiImage = {
   mimeType?: string;
 };
 
+const imageModelName = process.env.GEMINI_IMAGE_MODEL ?? "image-001";
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const imageModel = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash-image",
+  model: imageModelName,
 });
 
 async function generateImage(prompt: string): Promise<GeminiImage[]> {
@@ -43,7 +45,9 @@ async function generateImage(prompt: string): Promise<GeminiImage[]> {
         .map((part) => (part as any)?.text as string | undefined)
         .filter((text): text is string => Boolean(text))
         .join("\n") ?? "No additional details provided.";
-    throw new Error(`Gemini did not return image data. Details: ${fallbackText}`);
+    throw new Error(
+      `Gemini (model: ${imageModelName}) did not return image data. Details: ${fallbackText}`
+    );
   }
 
   return images;
