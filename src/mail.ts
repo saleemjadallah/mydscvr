@@ -27,11 +27,14 @@ async function sendEmail(options: EmailOptions) {
   const url =
     sanitizeEnv(process.env.ZEPTO_API_URL) ||
     "https://api.zeptomail.com/v1.1/email";
+  const fromAddress = sanitizeEnv(process.env.ZEPTO_FROM_EMAIL)!;
+  const bounceAddress =
+    sanitizeEnv(process.env.ZEPTO_BOUNCE_EMAIL) || fromAddress;
 
   const payload = {
-    bounce_address: sanitizeEnv(process.env.ZEPTO_FROM_EMAIL),
+    bounce_address: bounceAddress,
     from: {
-      address: sanitizeEnv(process.env.ZEPTO_FROM_EMAIL)!,
+      address: fromAddress,
       name: sanitizeEnv(process.env.ZEPTO_FROM_NAME) || "MyDscvr Food",
     },
     to: options.to.map((recipient) => ({

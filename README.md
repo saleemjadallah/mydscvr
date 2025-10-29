@@ -44,6 +44,7 @@ Backend API for MyDscvr Food - Virtual Food Photographer application.
    - `ZEPTO_SEND_TOKEN`: Zepto Mail API token (raw value, without `Zoho-enczapikey`)
    - `ZEPTO_FROM_EMAIL`: Default “from” address for transactional email
    - `ZEPTO_FROM_NAME`: Display name for outgoing email (optional)
+   - `ZEPTO_BOUNCE_EMAIL`: Bounce/return-path address (must be verified in Zepto; falls back to `ZEPTO_FROM_EMAIL` if omitted)
    - `OTP_CODE_EXPIRY_MINUTES`: Minutes before login OTPs expire (default 10)
 
 3. **Set up database**
