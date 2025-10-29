@@ -6,12 +6,7 @@ if (!process.env.GEMINI_API_KEY) {
 
 const defaultModel = "models/gemini-2.5-flash-image";
 const configuredModel = process.env.GEMINI_IMAGE_MODEL;
-const imageModelName =
-  configuredModel && configuredModel.startsWith("models/")
-    ? configuredModel
-    : configuredModel
-      ? `models/${configuredModel}`
-      : defaultModel;
+const imageModelName = configuredModel ?? defaultModel;
 
 type GeminiImage = {
   b64_json: string;
