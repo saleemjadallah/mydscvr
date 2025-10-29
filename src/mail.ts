@@ -45,6 +45,9 @@ async function sendEmail(options: EmailOptions) {
     textbody: options.textBody,
   };
 
+  const firstRecipient = options.to[0]?.address || "unknown";
+  console.log(`Sending email to ${firstRecipient} with subject: ${options.subject}`);
+
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -56,10 +59,15 @@ async function sendEmail(options: EmailOptions) {
 
   if (!response.ok) {
     const errorBody = await response.text();
+    console.error(`ZeptoMail error: ${response.status} ${response.statusText} :: ${errorBody}`);
     throw new Error(
       `Failed to send Zepto Mail email: ${response.status} ${response.statusText} :: ${errorBody}`,
     );
   }
+
+  const responseData = await response.json();
+  console.log(`Email sent successfully to ${firstRecipient}. Response:`, JSON.stringify(responseData));
+  return responseData;
 }
 
 export async function sendWelcomeEmail({
