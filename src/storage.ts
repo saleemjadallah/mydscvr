@@ -72,6 +72,9 @@ export class DatabaseStorage implements IStorage {
       .insert(users)
       .values(userData as any)
       .returning();
+    if (!user) {
+      throw new Error("Failed to create user");
+    }
     return user;
   }
 
@@ -88,6 +91,9 @@ export class DatabaseStorage implements IStorage {
           },
         })
         .returning();
+      if (!user) {
+        throw new Error("Failed to upsert user");
+      }
       return user;
     } catch (error: any) {
       // Handle unique constraint violation on email
@@ -117,6 +123,9 @@ export class DatabaseStorage implements IStorage {
             })
             .where(eq(users.id, oldId))
             .returning();
+          if (!updatedUser) {
+            throw new Error("Failed to update existing user during upsert");
+          }
           
           // Then update all foreign key references to point to the new ID
           await tx.update(menuItems).set({ userId: newId }).where(eq(menuItems.userId, oldId));
@@ -173,6 +182,9 @@ export class DatabaseStorage implements IStorage {
       .insert(menuItems)
       .values(insertItem)
       .returning();
+    if (!item) {
+      throw new Error("Failed to create menu item");
+    }
     return item;
   }
 
@@ -225,6 +237,9 @@ export class DatabaseStorage implements IStorage {
       .insert(subscriptions)
       .values([insertSubscription as any])
       .returning();
+    if (!subscription) {
+      throw new Error("Failed to create subscription");
+    }
     return subscription;
   }
 
@@ -266,6 +281,9 @@ export class DatabaseStorage implements IStorage {
       .insert(usageRecords)
       .values(record)
       .returning();
+    if (!usageRecord) {
+      throw new Error("Failed to create usage record");
+    }
     return usageRecord;
   }
 
@@ -319,6 +337,9 @@ export class DatabaseStorage implements IStorage {
 
   async createOtpCode(codeData: InsertOtpCode): Promise<OtpCode> {
     const [code] = await db.insert(otpCodes).values(codeData).returning();
+    if (!code) {
+      throw new Error("Failed to create OTP code");
+    }
     return code;
   }
 
