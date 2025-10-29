@@ -490,6 +490,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // IMAGE GENERATION ROUTE (With usage tracking and limits)
   // ============================================
 
+  const TRIAL_DISH_LIMIT = 3;
+  const TRIAL_IMAGES_PER_DISH = 3;
+
   // POST /api/generate-images - Generate food photography using OpenAI
   app.post("/api/generate-images", isAuthenticated, async (req: any, res) => {
     try {
@@ -517,28 +520,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check subscription and usage limits
       const subscription = await storage.getActiveSubscription(userId);
-      if (!subscription) {
-        return res.status(403).json({
-          error: "No active subscription",
-          message: "Please subscribe to a plan to generate images"
-        });
-      }
-
       const usage = await storage.getCurrentUsage(userId);
-      const tier = subscription.tier;
-      const limits = tierLimits[tier];
       const dishesUsed = usage?.dishesGenerated || 0;
 
-      // Check if user has exceeded their dish limit
-      if (dishesUsed >= limits.dishesPerMonth) {
-        return res.status(403).json({
-          error: "Usage limit exceeded",
-          message: `You've reached your ${tier} plan limit of ${limits.dishesPerMonth} dishes per month. Please upgrade or wait for next billing cycle.`,
-          dishesUsed,
-          dishesLimit: limits.dishesPerMonth,
-          tier,
-        });
+      let limits = subscription ? tierLimits[subscription.tier] : undefined;
+
+      if (!subscription) {
+        if (dishesUsed >= TRIAL_DISH_LIMIT) {
+          return res.status(403).json({
+            error: "Trial limit reached",
+            message: "You've used your three free dishes. Subscribe to continue generating new images.",
+            dishesUsed,
+            trialLimit: TRIAL_DISH_LIMIT,
+          });
+        }
+      } else {
+        // Check if user has exceeded their dish limit
+        if (dishesUsed >= limits.dishesPerMonth) {
+          return res.status(403).json({
+            error: "Usage limit exceeded",
+            message: `You've reached your ${subscription.tier} plan limit of ${limits.dishesPerMonth} dishes per month. Please upgrade or wait for next billing cycle.`,
+            dishesUsed,
+            dishesLimit: limits.dishesPerMonth,
+            tier: subscription.tier,
+          });
+        }
       }
+
+      // Determine images-per-dish limit
+      const imagesPerDish = subscription ? limits.imagesPerDish : TRIAL_IMAGES_PER_DISH;
 
       // Generate style-specific prompt
       const stylePrompts: Record<string, string> = {
@@ -553,8 +563,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? `, featuring ${ingredients.join(", ")}`
         : "";
 
-      // Generate image variations (always 3 per dish)
-      const numberOfVariations = limits.imagesPerDish;
+      // Generate image variations
+      const numberOfVariations = imagesPerDish;
       const imagePromises = [];
 
       for (let i = 0; i < numberOfVariations; i++) {
