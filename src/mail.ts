@@ -1,18 +1,5 @@
 import assert from "node:assert";
 
-const {
-  ZEPTO_MAIL_BASE_URL,
-  ZEPTO_MAIL_API_TOKEN,
-  ZEPTO_MAIL_FROM_EMAIL,
-  ZEPTO_MAIL_FROM_NAME,
-  ZEPTO_MAIL_BOUNCE_EMAIL,
-} = process.env;
-
-function ensureMailConfig() {
-  assert(ZEPTO_MAIL_API_TOKEN, "ZEPTO_MAIL_API_TOKEN must be set");
-  assert(ZEPTO_MAIL_FROM_EMAIL, "ZEPTO_MAIL_FROM_EMAIL must be set");
-}
-
 interface Recipient {
   address: string;
   name?: string | null;
@@ -25,19 +12,27 @@ interface EmailOptions {
   textBody: string;
 }
 
-const DEFAULT_BASE_URL = "https://api.zeptomail.com";
+function sanitizeEnv(value: string | undefined) {
+  return value?.trim().replace(/^['"]|['"]$/g, "");
+}
+
+function ensureMailConfig() {
+  assert(sanitizeEnv(process.env.ZEPTO_SEND_TOKEN), "ZEPTO_SEND_TOKEN must be set");
+  assert(sanitizeEnv(process.env.ZEPTO_FROM_EMAIL), "ZEPTO_FROM_EMAIL must be set");
+}
 
 async function sendEmail(options: EmailOptions) {
   ensureMailConfig();
 
-  const baseUrl = (ZEPTO_MAIL_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
-  const url = `${baseUrl}/v1.0/email`;
+  const url =
+    sanitizeEnv(process.env.ZEPTO_API_URL) ||
+    "https://api.zeptomail.com/v1.1/email";
 
   const payload = {
-    bounce_address: ZEPTO_MAIL_BOUNCE_EMAIL || ZEPTO_MAIL_FROM_EMAIL,
+    bounce_address: sanitizeEnv(process.env.ZEPTO_FROM_EMAIL),
     from: {
-      address: ZEPTO_MAIL_FROM_EMAIL,
-      name: ZEPTO_MAIL_FROM_NAME || "MyDscvr Food",
+      address: sanitizeEnv(process.env.ZEPTO_FROM_EMAIL)!,
+      name: sanitizeEnv(process.env.ZEPTO_FROM_NAME) || "MyDscvr Food",
     },
     to: options.to.map((recipient) => ({
       email_address: {
@@ -53,7 +48,7 @@ async function sendEmail(options: EmailOptions) {
   const response = await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Zoho-enczapikey ${ZEPTO_MAIL_API_TOKEN}`,
+      Authorization: `Zoho-enczapikey ${sanitizeEnv(process.env.ZEPTO_SEND_TOKEN)}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
