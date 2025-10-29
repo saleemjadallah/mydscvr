@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
-import { insertMenuItemSchema, insertSubscriptionSchema, tierLimits } from "../shared/schema.js";
+import { insertMenuItemSchema, insertSubscriptionSchema, tierLimits, type TierLimits } from "../shared/schema.js";
 import { openai } from "./openai.js";
 import { setupAuth, isAuthenticated } from "./auth.js";
 import { z } from "zod";
@@ -30,6 +30,9 @@ console.log('[Stripe] Using key:', stripeSecretKey.substring(0, 12) + '...');
 const stripe = new Stripe(stripeSecretKey, {
   apiVersion: '2025-09-30.clover',
 });
+
+const TRIAL_DISH_LIMIT = 3;
+const TRIAL_IMAGES_PER_DISH = 3;
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================
@@ -353,8 +356,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const subscription = await storage.getActiveSubscription(userId);
 
       // Calculate limits and remaining quota
+      const isTrial = !subscription;
+      const limits: TierLimits = subscription
+        ? tierLimits[subscription.tier]
+        : {
+            dishesPerMonth: TRIAL_DISH_LIMIT,
+            imagesPerDish: TRIAL_IMAGES_PER_DISH,
+            priceAED: 0,
+            overagePricePerDish: 0,
+          };
       const tier = subscription?.tier || "starter";
-      const limits = tierLimits[tier];
 
       const dishesUsed = usage?.dishesGenerated || 0;
       const imagesUsed = usage?.imagesGenerated || 0;
@@ -368,6 +379,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imagesUsed,
         dishesRemaining,
         hasReachedLimit: dishesUsed >= limits.dishesPerMonth,
+        limitType: isTrial ? "trial" : "plan",
+        trialLimit: isTrial ? TRIAL_DISH_LIMIT : undefined,
       });
     } catch (error) {
       console.error("Error fetching usage:", error);
@@ -490,9 +503,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // IMAGE GENERATION ROUTE (With usage tracking and limits)
   // ============================================
 
-  const TRIAL_DISH_LIMIT = 3;
-  const TRIAL_IMAGES_PER_DISH = 3;
-
   // POST /api/generate-images - Generate food photography using OpenAI
   app.post("/api/generate-images", isAuthenticated, async (req: any, res) => {
     try {
@@ -523,15 +533,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const usage = await storage.getCurrentUsage(userId);
       const dishesUsed = usage?.dishesGenerated || 0;
 
-      let limits = subscription ? tierLimits[subscription.tier] : undefined;
+      const limits: TierLimits = subscription
+        ? tierLimits[subscription.tier]
+        : {
+            dishesPerMonth: TRIAL_DISH_LIMIT,
+            imagesPerDish: TRIAL_IMAGES_PER_DISH,
+            priceAED: 0,
+            overagePricePerDish: 0,
+          };
 
       if (!subscription) {
-        if (dishesUsed >= TRIAL_DISH_LIMIT) {
+        if (dishesUsed >= limits.dishesPerMonth) {
           return res.status(403).json({
             error: "Trial limit reached",
             message: "You've used your three free dishes. Subscribe to continue generating new images.",
             dishesUsed,
-            trialLimit: TRIAL_DISH_LIMIT,
+            trialLimit: limits.dishesPerMonth,
           });
         }
       } else {
@@ -548,7 +565,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Determine images-per-dish limit
-      const imagesPerDish = subscription ? limits.imagesPerDish : TRIAL_IMAGES_PER_DISH;
+      const imagesPerDish = limits.imagesPerDish;
 
       // Generate style-specific prompt
       const stylePrompts: Record<string, string> = {
