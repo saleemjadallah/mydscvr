@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { insertMenuItemSchema, insertSubscriptionSchema, tierLimits, type TierLimits } from "../shared/schema.js";
-import { openai } from "./openai.js";
+import { generateImageBase64 } from "./openai.js";
 import { setupAuth, isAuthenticated } from "./auth.js";
 import { z } from "zod";
 import Stripe from "stripe";
@@ -32,7 +32,35 @@ const stripe = new Stripe(stripeSecretKey, {
 });
 
 const TRIAL_DISH_LIMIT = 3;
-const TRIAL_IMAGES_PER_DISH = 3;
+  const TRIAL_IMAGES_PER_DISH = 3;
+  const VARIATION_VIEWS = ["Centered plating", "Slightly angled view", "Close-up detail shot"] as const;
+
+  const getImageSize = (style: string, quality: "preview" | "final"): string => {
+    const isDelivery = style === "Delivery App";
+    if (quality === "preview") {
+      return isDelivery ? "1024x682" : "768x768";
+    }
+    return isDelivery ? "1536x1024" : "1536x1536";
+  };
+
+  const buildPrompt = (
+    index: number,
+    stylePrompt: string,
+    dishName: string,
+    description: string,
+    ingredientsList: string,
+    quality: "preview" | "final",
+    style: string
+  ): string => {
+    const view = VARIATION_VIEWS[index] ?? VARIATION_VIEWS[VARIATION_VIEWS.length - 1];
+    const resolutionHint = getImageSize(style, quality);
+    const qualityHint =
+      quality === "preview"
+        ? `Render a quick low-resolution preview (approximately ${resolutionHint}) to evaluate composition.`
+        : `Produce a detailed, production-ready high-resolution image (approximately ${resolutionHint}).`;
+
+    return `${dishName}${description ? `: ${description}` : ""}${ingredientsList}. ${stylePrompt}. ${view}. ${qualityHint} High-end restaurant quality, award-winning food photography, ultra realistic.`;
+  };
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================
@@ -568,52 +596,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const imagesPerDish = limits.imagesPerDish;
 
       // Generate style-specific prompt
-      const stylePrompts: Record<string, string> = {
+      const stylePrompts: Record<
+        "Rustic/Dark" | "Bright/Modern" | "Social Media" | "Delivery App",
+        string
+      > = {
         "Rustic/Dark": "dark moody lighting, rustic wooden table, warm tones, dramatic shadows, intimate atmosphere, professional food photography",
         "Bright/Modern": "bright natural lighting, clean white background, minimalist modern aesthetic, crisp focus, professional food photography",
         "Social Media": "overhead top-down view, flat lay style, Instagram-ready composition, vibrant colors, professional food photography",
         "Delivery App": "appetizing well-lit presentation, bright even lighting, mouth-watering appeal, clean professional backdrop, optimized for mobile app display, professional food photography"
       };
 
-      const stylePrompt = stylePrompts[style] || stylePrompts["Bright/Modern"];
-      const ingredientsList = ingredients && ingredients.length > 0
+      const stylePrompt: string = stylePrompts[style] ?? stylePrompts["Bright/Modern"];
+      const ingredientsList: string = ingredients && ingredients.length > 0
         ? `, featuring ${ingredients.join(", ")}`
         : "";
 
       // Generate image variations
-      const numberOfVariations = imagesPerDish;
-      const imagePromises = [];
-
-      for (let i = 0; i < numberOfVariations; i++) {
-        const variationPrompt = `${dishName}${description ? `: ${description}` : ""}${ingredientsList}. ${stylePrompt}. ${
-          i === 0 ? "Centered plating" : i === 1 ? "Slightly angled view" : "Close-up detail shot"
-        }. High-end restaurant quality, award-winning food photography, ultra realistic, 8k quality.`;
-
-        // Use horizontal 3:2 aspect ratio for Delivery App style
-        const imageSize = style === "Delivery App" ? "1536x1024" : "1024x1024";
-
-        imagePromises.push(
-          openai.images.generate({
-            model: "gpt-image-1",
-            prompt: variationPrompt,
-            n: 1,
-            size: imageSize,
-          })
+      const generateVariant = async (index: number): Promise<string | null> => {
+        const variationPrompt: string = buildPrompt(
+          index,
+          stylePrompt,
+          dishName,
+          description ?? '',
+          ingredientsList,
+          "preview",
+          style
         );
+
+        try {
+          return await generateImageBase64(variationPrompt);
+        } catch (error) {
+          console.error("Preview generation failed:", error);
+          return null;
+        }
+      };
+
+      const previewResults = await Promise.all(
+        Array.from({ length: imagesPerDish }, (_, index) => generateVariant(index))
+      );
+
+      if (previewResults.some((url) => !url)) {
+        return res.status(500).json({ error: "Failed to generate preview images" });
       }
 
-      // Wait for all images to be generated
-      const results = await Promise.all(imagePromises);
-
-      // Extract base64 images from results
-      const imageUrls = results
-        .map(result => result.data?.[0]?.b64_json)
-        .filter((b64): b64 is string => Boolean(b64))
-        .map(b64 => `data:image/png;base64,${b64}`);
-
-      if (imageUrls.length === 0) {
-        return res.status(500).json({ error: "Failed to generate images" });
-      }
+      const imageUrls = previewResults.filter((url): url is string => Boolean(url));
 
       // Update menu item with generated images
       const updatedItem = await storage.updateMenuItem(menuItemId, {
@@ -625,6 +651,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.incrementUsage(userId, 1, imageUrls.length);
 
       res.json({ images: imageUrls, menuItem: updatedItem });
+    } catch (error) {
+      console.error("Image generation error:", error);
+      res.status(500).json({
+        error: "Failed to generate images",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  app.post("/api/generate-images/highres", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+
+      const highResSchema = z.object({
+        menuItemId: z.string(),
+        style: z.enum(["Rustic/Dark", "Bright/Modern", "Social Media", "Delivery App"]),
+        dishName: z.string(),
+        description: z.string().optional(),
+        ingredients: z.array(z.string()).optional(),
+        indices: z.array(z.number().int().min(0)).nonempty(),
+      });
+
+      const { menuItemId, style, dishName, description, ingredients, indices } =
+        highResSchema.parse(req.body);
+
+      const menuItem = await storage.getMenuItem(menuItemId);
+      if (!menuItem) {
+        return res.status(404).json({ error: "Menu item not found" });
+      }
+      if (menuItem.userId && menuItem.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const stylePrompts: Record<
+        "Rustic/Dark" | "Bright/Modern" | "Social Media" | "Delivery App",
+        string
+      > = {
+        "Rustic/Dark": "dark moody lighting, rustic wooden table, warm tones, dramatic shadows, intimate atmosphere, professional food photography",
+        "Bright/Modern": "bright natural lighting, clean white background, minimalist modern aesthetic, crisp focus, professional food photography",
+        "Social Media": "overhead top-down view, flat lay style, Instagram-ready composition, vibrant colors, professional food photography",
+        "Delivery App": "appetizing well-lit presentation, bright even lighting, mouth-watering appeal, clean professional backdrop, optimized for mobile app display, professional food photography"
+      };
+
+      const stylePrompt: string = stylePrompts[style] ?? stylePrompts["Bright/Modern"];
+      const ingredientsList: string = ingredients && ingredients.length > 0
+        ? `, featuring ${ingredients.join(", ")}`
+        : "";
+
+      const uniqueIndices = Array.from(new Set(indices)).filter((index) => index >= 0 && index < VARIATION_VIEWS.length);
+      if (uniqueIndices.length === 0) {
+        return res.status(400).json({ error: "No valid image indices provided" });
+      }
+
+      const generateHighResVariant = async (index: number): Promise<string | null> => {
+        const variationPrompt: string = buildPrompt(
+          index,
+          stylePrompt,
+          dishName,
+          description ?? '',
+          ingredientsList,
+          "final",
+          style
+        );
+        try {
+          return await generateImageBase64(variationPrompt);
+        } catch (error) {
+          console.error("High-res generation failed:", error);
+          return null;
+        }
+      };
+
+      const highResResults = await Promise.all(uniqueIndices.map((index) => generateHighResVariant(index)));
+      if (highResResults.some((url) => !url)) {
+        return res.status(500).json({ error: "Failed to generate high-resolution images" });
+      }
+
+      const b64Images = highResResults.filter((url): url is string => Boolean(url));
+
+      const updatedImages = [...(menuItem.generatedImages ?? [])];
+      uniqueIndices.forEach((index, idx) => {
+        const imageValue = b64Images[idx];
+        if (imageValue) {
+          updatedImages[index] = imageValue;
+        }
+      });
+
+      const updatedItem = await storage.updateMenuItem(menuItemId, {
+        generatedImages: updatedImages,
+        selectedStyle: style,
+      });
+
+      res.json({
+        images: updatedImages,
+        menuItem: updatedItem,
+        updatedIndices: uniqueIndices,
+      });
     } catch (error) {
       console.error("Image generation error:", error);
       res.status(500).json({
