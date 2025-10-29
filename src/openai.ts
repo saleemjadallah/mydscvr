@@ -4,18 +4,18 @@ if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY must be set");
 }
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash-image",
-});
-
 type GeminiImage = {
   b64_json: string;
   mimeType?: string;
 };
 
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const imageModel = genAI.getGenerativeModel({
+  model: "gemini-2.5-flash-image",
+});
+
 async function generateImage(prompt: string): Promise<GeminiImage[]> {
-  const response = await model.generateContent({
+  const response = await imageModel.generateContent({
     contents: [
       {
         role: "user",
@@ -37,7 +37,13 @@ async function generateImage(prompt: string): Promise<GeminiImage[]> {
     }));
 
   if (!images.length) {
-    throw new Error("Gemini did not return image data for the requested prompt.");
+    const fallbackText =
+      response.response?.candidates
+        ?.flatMap((candidate) => candidate.content?.parts ?? [])
+        .map((part) => (part as any)?.text as string | undefined)
+        .filter((text): text is string => Boolean(text))
+        .join("\n") ?? "No additional details provided.";
+    throw new Error(`Gemini did not return image data. Details: ${fallbackText}`);
   }
 
   return images;
