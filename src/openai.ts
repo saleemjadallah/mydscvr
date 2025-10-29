@@ -1,23 +1,33 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY must be set");
 }
+
+const defaultModel = "models/gemini-2.5-flash-image";
+const configuredModel = process.env.GEMINI_IMAGE_MODEL;
+const imageModelName =
+  configuredModel && configuredModel.startsWith("models/")
+    ? configuredModel
+    : configuredModel
+      ? `models/${configuredModel}`
+      : defaultModel;
 
 type GeminiImage = {
   b64_json: string;
   mimeType?: string;
 };
 
-const imageModelName = process.env.GEMINI_IMAGE_MODEL ?? "image-001";
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const imageModel = genAI.getGenerativeModel({
-  model: imageModelName,
+const genAI = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
 });
 
 async function generateImage(prompt: string): Promise<GeminiImage[]> {
-  const response = await imageModel.generateContent({
+  const response = await genAI.models.generateContent({
+    model: imageModelName,
+    config: {
+      responseModalities: ["IMAGE"],
+    },
     contents: [
       {
         role: "user",
@@ -27,8 +37,7 @@ async function generateImage(prompt: string): Promise<GeminiImage[]> {
   });
 
   const parts =
-    response.response?.candidates?.flatMap((candidate) => candidate.content?.parts ?? []) ??
-    [];
+    response.candidates?.flatMap((candidate) => candidate.content?.parts ?? []) ?? [];
 
   const images = parts
     .map((part) => part.inlineData)
@@ -40,7 +49,7 @@ async function generateImage(prompt: string): Promise<GeminiImage[]> {
 
   if (!images.length) {
     const fallbackText =
-      response.response?.candidates
+      response.candidates
         ?.flatMap((candidate) => candidate.content?.parts ?? [])
         .map((part) => (part as any)?.text as string | undefined)
         .filter((text): text is string => Boolean(text))
