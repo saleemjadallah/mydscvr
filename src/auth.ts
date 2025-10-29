@@ -7,7 +7,7 @@ import { pool } from "./db.js";
 import { storage } from "./storage.js";
 import bcrypt from "bcrypt";
 import { sendWelcomeEmail } from "./mail.js";
-import { requestLoginOtp, verifyLoginOtp } from "./otp.js";
+import { requestLoginOtp, verifyLoginOtp, requestRegistrationOtp, verifyRegistrationOtp } from "./otp.js";
 import { z } from "zod";
 
 const SALT_ROUNDS = 10;
@@ -116,20 +116,13 @@ export async function setupAuth(app: Express) {
         lastName: lastName || "",
       });
 
-      void sendWelcomeEmail({
-        email: user.email!,
-        name: user.firstName,
-      }).catch((error) => {
-        console.error("Failed to send welcome email:", error);
-      });
+      // Send registration OTP instead of auto-logging in
+      await requestRegistrationOtp(user.email!, user.id);
 
-      // Log the user in
-      req.login(user, (err) => {
-        if (err) {
-          return res.status(500).json({ message: "Registration succeeded but login failed" });
-        }
-        const { passwordHash: _, ...userWithoutPassword } = user;
-        res.json(userWithoutPassword);
+      // Return success without logging in
+      res.json({
+        message: "Registration successful. Please check your email for verification code.",
+        email: user.email
       });
     } catch (error) {
       console.error("Registration error:", error);
@@ -181,6 +174,47 @@ export async function setupAuth(app: Express) {
         .catch((error) => {
           console.error("OTP login error:", error);
           res.status(500).json({ message: "Login failed" });
+        });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.issues[0]?.message ?? "Invalid request" });
+      }
+      return next(error);
+    }
+  });
+
+  // Verify registration OTP
+  app.post("/api/auth/verify-registration", (req, res, next) => {
+    try {
+      const { email, code } = otpLoginSchema.parse(req.body);
+
+      verifyRegistrationOtp(email, code)
+        .then((user) => {
+          if (!user) {
+            return res.status(401).json({ message: "Invalid or expired verification code" });
+          }
+
+          // Log the user in after successful verification
+          req.login(user, (err) => {
+            if (err) {
+              console.error("Registration verification session error:", err);
+              return res.status(500).json({ message: "Verification succeeded but login failed" });
+            }
+
+            // Send welcome email after successful verification
+            void sendWelcomeEmail({
+              email: user.email!,
+              name: user.firstName,
+            }).catch((error) => {
+              console.error("Failed to send welcome email:", error);
+            });
+
+            res.json(user);
+          });
+        })
+        .catch((error) => {
+          console.error("Registration verification error:", error);
+          res.status(500).json({ message: "Verification failed" });
         });
     } catch (error) {
       if (error instanceof z.ZodError) {

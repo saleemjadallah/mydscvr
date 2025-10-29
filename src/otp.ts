@@ -64,3 +64,43 @@ export async function verifyLoginOtp(email: string, code: string) {
   const { passwordHash, ...userWithoutPassword } = user;
   return userWithoutPassword;
 }
+
+export async function requestRegistrationOtp(email: string, userId: string) {
+  const code = generateNumericOtp(OTP_LENGTH);
+  const expiresAt = getExpiryDate();
+
+  await storage.deleteOtpCodesForUser(userId, "registration");
+  await storage.createOtpCode({
+    userId,
+    purpose: "registration",
+    code,
+    expiresAt,
+  });
+
+  await sendOtpEmail({
+    email,
+    name: null,
+    code,
+  });
+}
+
+export async function verifyRegistrationOtp(email: string, code: string) {
+  const user = await storage.getUserByEmail(email);
+  if (!user) {
+    return null;
+  }
+
+  const otp = await storage.findOtpCode(user.id, "registration", code);
+  if (!otp) {
+    return null;
+  }
+
+  if (otp.expiresAt < new Date()) {
+    await storage.deleteOtpCodesForUser(user.id, "registration");
+    return null;
+  }
+
+  await storage.deleteOtpCodesForUser(user.id, "registration");
+  const { passwordHash, ...userWithoutPassword } = user;
+  return userWithoutPassword;
+}

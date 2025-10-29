@@ -38,7 +38,7 @@ export type User = typeof users.$inferSelect;
 // OTP CODES
 // ============================================
 
-export const otpPurposes = ["login"] as const;
+export const otpPurposes = ["login", "registration"] as const;
 export type OTPPurpose = typeof otpPurposes[number];
 
 export const otpCodes = pgTable("otp_codes", {
