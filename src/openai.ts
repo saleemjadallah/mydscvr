@@ -18,7 +18,7 @@ const genAI = new GoogleGenAI({
 });
 
 async function generateImage(prompt: string): Promise<GeminiImage[]> {
-  const response = await genAI.models.generateContent({
+  const stream = await genAI.models.generateContentStream({
     model: imageModelName,
     config: {
       responseModalities: ["IMAGE"],
@@ -31,24 +31,26 @@ async function generateImage(prompt: string): Promise<GeminiImage[]> {
     ],
   });
 
-  const parts =
-    response.candidates?.flatMap((candidate) => candidate.content?.parts ?? []) ?? [];
+  const images: GeminiImage[] = [];
+  const messages: string[] = [];
 
-  const images = parts
-    .map((part) => part.inlineData)
-    .filter((inlineData): inlineData is NonNullable<typeof inlineData> => Boolean(inlineData?.data))
-    .map((inlineData) => ({
-      b64_json: inlineData.data!,
-      mimeType: inlineData.mimeType ?? "image/png",
-    }));
+  for await (const chunk of stream) {
+    const parts =
+      chunk.candidates?.flatMap((candidate) => candidate.content?.parts ?? []) ?? [];
+    for (const part of parts) {
+      if (part.inlineData?.data) {
+        images.push({
+          b64_json: part.inlineData.data,
+          mimeType: part.inlineData.mimeType ?? "image/png",
+        });
+      } else if ((part as any).text) {
+        messages.push((part as any).text as string);
+      }
+    }
+  }
 
   if (!images.length) {
-    const fallbackText =
-      response.candidates
-        ?.flatMap((candidate) => candidate.content?.parts ?? [])
-        .map((part) => (part as any)?.text as string | undefined)
-        .filter((text): text is string => Boolean(text))
-        .join("\n") ?? "No additional details provided.";
+    const fallbackText = messages.length ? messages.join("\n") : "No additional details provided.";
     throw new Error(
       `Gemini (model: ${imageModelName}) did not return image data. Details: ${fallbackText}`
     );
