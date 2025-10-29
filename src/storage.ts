@@ -11,6 +11,10 @@ import {
   type InsertSubscription,
   type UsageRecord,
   type InsertUsageRecord,
+  otpCodes,
+  type InsertOtpCode,
+  type OtpCode,
+  type OTPPurpose,
 } from "../shared/schema.js";
 import { db } from "./db.js";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
@@ -41,6 +45,11 @@ export interface IStorage {
   createUsageRecord(record: InsertUsageRecord): Promise<UsageRecord>;
   updateUsageRecord(id: string, updates: Partial<InsertUsageRecord>): Promise<UsageRecord | undefined>;
   incrementUsage(userId: string, dishesIncrement: number, imagesIncrement: number): Promise<UsageRecord>;
+
+  // OTP operations
+  createOtpCode(code: InsertOtpCode): Promise<OtpCode>;
+  findOtpCode(userId: string, purpose: OTPPurpose, code: string): Promise<OtpCode | undefined>;
+  deleteOtpCodesForUser(userId: string, purpose: OTPPurpose): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -302,6 +311,37 @@ export class DatabaseStorage implements IStorage {
     }
     
     return usage;
+  }
+
+  // ============================================
+  // OTP OPERATIONS
+  // ============================================
+
+  async createOtpCode(codeData: InsertOtpCode): Promise<OtpCode> {
+    const [code] = await db.insert(otpCodes).values(codeData).returning();
+    return code;
+  }
+
+  async findOtpCode(userId: string, purpose: OTPPurpose, code: string): Promise<OtpCode | undefined> {
+    const [otp] = await db
+      .select()
+      .from(otpCodes)
+      .where(
+        and(
+          eq(otpCodes.userId, userId),
+          eq(otpCodes.purpose, purpose),
+          eq(otpCodes.code, code)
+        )
+      )
+      .orderBy(desc(otpCodes.createdAt))
+      .limit(1);
+    return otp;
+  }
+
+  async deleteOtpCodesForUser(userId: string, purpose: OTPPurpose): Promise<void> {
+    await db
+      .delete(otpCodes)
+      .where(and(eq(otpCodes.userId, userId), eq(otpCodes.purpose, purpose)));
   }
 }
 

@@ -40,6 +40,11 @@ Backend API for MyDscvr Food - Virtual Food Photographer application.
    - `SESSION_SECRET`: Random string (at least 32 characters)
    - `FRONTEND_URL`: Your frontend URL (http://localhost:5173 for development)
    - `ALLOWED_ORIGINS`: Comma-separated list of allowed CORS origins
+   - `ZEPTO_MAIL_API_TOKEN`: Zepto Mail API token (Zoho enczapikey)
+   - `ZEPTO_MAIL_FROM_EMAIL`: Default “from” address for transactional email
+   - `ZEPTO_MAIL_FROM_NAME`: Display name for outgoing email (optional)
+   - `ZEPTO_MAIL_BOUNCE_EMAIL`: Bounce handling address (optional)
+   - `OTP_CODE_EXPIRY_MINUTES`: Minutes before login OTPs expire (default 10)
 
 3. **Set up database**
    ```bash

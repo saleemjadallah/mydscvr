@@ -6,6 +6,9 @@ import connectPg from "connect-pg-simple";
 import { pool } from "./db.js";
 import { storage } from "./storage.js";
 import bcrypt from "bcrypt";
+import { sendWelcomeEmail } from "./mail.js";
+import { requestLoginOtp, verifyLoginOtp } from "./otp.js";
+import { z } from "zod";
 
 const SALT_ROUNDS = 10;
 
@@ -113,6 +116,13 @@ export async function setupAuth(app: Express) {
         lastName: lastName || "",
       });
 
+      void sendWelcomeEmail({
+        email: user.email!,
+        name: user.firstName,
+      }).catch((error) => {
+        console.error("Failed to send welcome email:", error);
+      });
+
       // Log the user in
       req.login(user, (err) => {
         if (err) {
@@ -124,6 +134,59 @@ export async function setupAuth(app: Express) {
     } catch (error) {
       console.error("Registration error:", error);
       res.status(500).json({ message: "Failed to register user" });
+    }
+  });
+
+  const otpRequestSchema = z.object({
+    email: z.string().email(),
+  });
+
+  app.post("/api/auth/request-otp", async (req, res) => {
+    try {
+      const { email } = otpRequestSchema.parse(req.body);
+      await requestLoginOtp(email);
+      res.json({ message: "If that email is registered, a login code has been sent." });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.issues[0]?.message ?? "Invalid request" });
+      }
+      console.error("OTP request error:", error);
+      res.status(500).json({ message: "Failed to send login code" });
+    }
+  });
+
+  const otpLoginSchema = z.object({
+    email: z.string().email(),
+    code: z.string().regex(/^\d{6}$/, "Invalid code"),
+  });
+
+  app.post("/api/auth/login-otp", (req, res, next) => {
+    try {
+      const { email, code } = otpLoginSchema.parse(req.body);
+
+      verifyLoginOtp(email, code)
+        .then((user) => {
+          if (!user) {
+            return res.status(401).json({ message: "Invalid or expired login code" });
+          }
+
+          req.login(user, (err) => {
+            if (err) {
+              console.error("OTP login session error:", err);
+              return res.status(500).json({ message: "Login failed" });
+            }
+            res.json(user);
+          });
+        })
+        .catch((error) => {
+          console.error("OTP login error:", error);
+          res.status(500).json({ message: "Login failed" });
+        });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.issues[0]?.message ?? "Invalid request" });
+      }
+      return next(error);
     }
   });
 

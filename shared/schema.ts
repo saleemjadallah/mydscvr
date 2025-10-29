@@ -35,6 +35,29 @@ export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 
 // ============================================
+// OTP CODES
+// ============================================
+
+export const otpPurposes = ["login"] as const;
+export type OTPPurpose = typeof otpPurposes[number];
+
+export const otpCodes = pgTable("otp_codes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  purpose: varchar("purpose", { length: 32 })
+    .notNull()
+    .$type<OTPPurpose>(),
+  code: varchar("code", { length: 12 }).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type InsertOtpCode = typeof otpCodes.$inferInsert;
+export type OtpCode = typeof otpCodes.$inferSelect;
+
+// ============================================
 // SUBSCRIPTION TABLES
 // ============================================
 
