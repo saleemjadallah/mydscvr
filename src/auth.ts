@@ -117,7 +117,19 @@ export async function setupAuth(app: Express) {
       });
 
       // Send registration OTP instead of auto-logging in
-      await requestRegistrationOtp(user.email!, user.id);
+      try {
+        await requestRegistrationOtp(user.email!, user.id);
+      } catch (otpError) {
+        console.error("Registration OTP error:", otpError);
+
+        // Surface useful diagnostics in non-production environments
+        const message =
+          process.env.NODE_ENV === "production"
+            ? "Failed to send verification email. Please try again later or contact support."
+            : `Failed to send verification email: ${otpError instanceof Error ? otpError.message : "Unknown error"}`;
+
+        return res.status(500).json({ message });
+      }
 
       // Return success without logging in
       res.json({
