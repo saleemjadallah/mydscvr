@@ -209,9 +209,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const subscription = event.data.object as Stripe.Subscription;
       const stripeSubscriptionId = subscription.id;
       const storedSubscription = await storage.getSubscriptionByStripeId(stripeSubscriptionId);
-      if (!storedSubscription) {
-        return res.json({ received: true });
-      }
 
       const statusMap: Record<Stripe.Subscription.Status, "active" | "cancelled" | "past_due" | "trialing"> = {
         active: "active",
@@ -224,19 +221,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paused: "past_due",
       };
 
-      const mappedStatus =
-        statusMap[subscription.status] ?? storedSubscription.status;
+      const mappedStatus = statusMap[subscription.status] ?? "active";
 
-      await storage.updateSubscription(storedSubscription.id, {
-        status: mappedStatus,
-        cancelAtPeriodEnd: subscription.cancel_at_period_end ? 1 : 0,
-        currentPeriodStart: subscription.current_period_start
+      if (!storedSubscription) {
+        // Create new subscription if it doesn't exist
+        const userId = subscription.metadata?.userId;
+        const tier = subscription.metadata?.tier as SubscriptionTier | undefined;
+
+        if (!userId || !tier) {
+          console.warn("[Webhook] Subscription metadata missing userId or tier in subscription.updated");
+          return res.json({ received: true });
+        }
+
+        const stripeCustomerId =
+          typeof subscription.customer === "string"
+            ? subscription.customer
+            : subscription.customer?.id ?? null;
+
+        const currentPeriodStart = subscription.current_period_start
           ? new Date(subscription.current_period_start * 1000)
-          : storedSubscription.currentPeriodStart,
-        currentPeriodEnd: subscription.current_period_end
+          : new Date();
+        const currentPeriodEnd = subscription.current_period_end
           ? new Date(subscription.current_period_end * 1000)
-          : storedSubscription.currentPeriodEnd,
-      });
+          : new Date();
+
+        const newSubscription = await storage.createSubscription({
+          userId,
+          tier,
+          status: mappedStatus,
+          stripeCustomerId: stripeCustomerId ?? null,
+          stripeSubscriptionId,
+          currentPeriodStart,
+          currentPeriodEnd,
+          cancelAtPeriodEnd: subscription.cancel_at_period_end ? 1 : 0,
+        });
+
+        // Create usage record for new subscription
+        const usage = await storage.getCurrentUsage(userId);
+        if (!usage || usage.subscriptionId !== newSubscription.id) {
+          await storage.createUsageRecord({
+            userId,
+            subscriptionId: newSubscription.id,
+            dishesGenerated: 0,
+            imagesGenerated: 0,
+            billingPeriodStart: currentPeriodStart,
+            billingPeriodEnd: currentPeriodEnd,
+          });
+        }
+
+        console.log("[Webhook] Subscription created via subscription.updated:", stripeSubscriptionId);
+      } else {
+        // Update existing subscription
+        await storage.updateSubscription(storedSubscription.id, {
+          status: mappedStatus,
+          cancelAtPeriodEnd: subscription.cancel_at_period_end ? 1 : 0,
+          currentPeriodStart: subscription.current_period_start
+            ? new Date(subscription.current_period_start * 1000)
+            : storedSubscription.currentPeriodStart,
+          currentPeriodEnd: subscription.current_period_end
+            ? new Date(subscription.current_period_end * 1000)
+            : storedSubscription.currentPeriodEnd,
+        });
+
+        console.log("[Webhook] Subscription updated:", stripeSubscriptionId);
+      }
 
     }
 
