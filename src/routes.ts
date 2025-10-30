@@ -420,6 +420,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         customer: customerId,
         items: [{ price: priceIds[tier as keyof typeof priceIds] }],
         payment_behavior: "default_incomplete",
+        collection_method: "charge_automatically",
         payment_settings: {
           save_default_payment_method: "on_subscription",
         },
