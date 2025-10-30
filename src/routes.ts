@@ -51,9 +51,13 @@ const priceIds = {
   enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID ?? "",
 };
 
-if (!priceIds.starter || !priceIds.pro) {
-  throw new Error(
-    "Missing required Stripe price IDs. Set STRIPE_STARTER_PRICE_ID and STRIPE_PRO_PRICE_ID environment variables."
+const missingPrices = Object.entries(priceIds)
+  .filter(([tier, value]) => !value && tier !== "enterprise")
+  .map(([tier]) => tier);
+
+if (missingPrices.length > 0) {
+  console.warn(
+    `[Stripe] Missing price IDs for tiers: ${missingPrices.join(", ")}. Set STRIPE_STARTER_PRICE_ID and STRIPE_PRO_PRICE_ID environment variables to enable checkout.`
   );
 }
 
