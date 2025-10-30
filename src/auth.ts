@@ -265,7 +265,17 @@ export async function setupAuth(app: Express) {
               console.error("OTP login session error:", err);
               return res.status(500).json({ message: "Login failed" });
             }
-            res.json(user);
+            
+            // Explicitly save the session
+            req.session.save((saveErr) => {
+              if (saveErr) {
+                console.error("[Auth] OTP session save failed:", saveErr);
+                return res.status(500).json({ message: "Session save failed" });
+              }
+              
+              console.log(`[Auth] User ${user.id} logged in via OTP, session ID: ${req.sessionID}`);
+              res.json(user);
+            });
           });
         })
         .catch((error) => {
@@ -298,15 +308,25 @@ export async function setupAuth(app: Express) {
               return res.status(500).json({ message: "Verification succeeded but login failed" });
             }
 
-            // Send welcome email after successful verification
-            void sendWelcomeEmail({
-              email: user.email!,
-              name: user.firstName,
-            }).catch((error) => {
-              console.error("Failed to send welcome email:", error);
-            });
+            // Explicitly save the session
+            req.session.save((saveErr) => {
+              if (saveErr) {
+                console.error("[Auth] Registration session save failed:", saveErr);
+                return res.status(500).json({ message: "Session save failed" });
+              }
+              
+              console.log(`[Auth] User ${user.id} verified and logged in, session ID: ${req.sessionID}`);
+              
+              // Send welcome email after successful verification
+              void sendWelcomeEmail({
+                email: user.email!,
+                name: user.firstName,
+              }).catch((error) => {
+                console.error("Failed to send welcome email:", error);
+              });
 
-            res.json(user);
+              res.json(user);
+            });
           });
         })
         .catch((error) => {
@@ -325,16 +345,30 @@ export async function setupAuth(app: Express) {
   app.post("/api/auth/login", (req, res, next) => {
     passport.authenticate("local", (err: any, user: any, info: any) => {
       if (err) {
+        console.error("[Auth] Authentication error:", err);
         return res.status(500).json({ message: "Authentication error" });
       }
       if (!user) {
+        console.warn("[Auth] Login failed:", info?.message || "Invalid credentials");
         return res.status(401).json({ message: info?.message || "Invalid credentials" });
       }
       req.login(user, (err) => {
         if (err) {
+          console.error("[Auth] req.login failed:", err);
           return res.status(500).json({ message: "Login failed" });
         }
-        res.json(user);
+        
+        // Explicitly save the session
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("[Auth] Session save failed:", saveErr);
+            return res.status(500).json({ message: "Session save failed" });
+          }
+          
+          console.log(`[Auth] User ${user.id} logged in successfully, session ID: ${req.sessionID}`);
+          console.log(`[Auth] Session cookie settings: secure=${req.session.cookie.secure}, sameSite=${req.session.cookie.sameSite}, httpOnly=${req.session.cookie.httpOnly}`);
+          res.json(user);
+        });
       });
     })(req, res, next);
   });
@@ -366,8 +400,17 @@ export async function setupAuth(app: Express) {
 }
 
 export const isAuthenticated: RequestHandler = (req, res, next) => {
+  const userId = (req.user as any)?.id || 'none';
+  console.log(`[Auth] isAuthenticated check - sessionID: ${req.sessionID}, authenticated: ${req.isAuthenticated()}, user: ${userId}`);
+  console.log(`[Auth] Session data:`, JSON.stringify({
+    passport: (req.session as any)?.passport,
+    cookie: req.session?.cookie
+  }));
+  
   if (req.isAuthenticated()) {
     return next();
   }
+  
+  console.warn(`[Auth] Request unauthorized - path: ${req.path}, sessionID: ${req.sessionID}`);
   res.status(401).json({ message: "Unauthorized" });
 };
