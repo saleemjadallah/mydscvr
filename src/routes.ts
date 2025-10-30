@@ -431,32 +431,135 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expand: ["latest_invoice.payment_intent"],
       });
 
-      const latestInvoice = subscription.latest_invoice;
-      let paymentIntent: Stripe.PaymentIntent | null = null;
+      const resolvePaymentIntent = async (): Promise<{
+        paymentIntent: Stripe.PaymentIntent | null;
+        invoiceId: string | null;
+        paymentIntentReference: string | null;
+        invoiceReferenceType: string | null;
+      }> => {
+        const maxAttempts = 5;
+        let attempts = 0;
+        let invoiceRef = subscription.latest_invoice;
+        let paymentIntent: Stripe.PaymentIntent | null = null;
+        let invoiceId: string | null = null;
+        let paymentIntentReference: string | null = null;
+        let invoiceReferenceType: string | null = invoiceRef ? typeof invoiceRef : null;
 
-      if (latestInvoice && typeof latestInvoice === "object" && "payment_intent" in latestInvoice) {
-        const invoiceObject = latestInvoice as Stripe.Invoice;
-        if (invoiceObject.payment_intent) {
-          if (typeof invoiceObject.payment_intent === "string") {
-            paymentIntent = await stripe.paymentIntents.retrieve(invoiceObject.payment_intent);
-          } else {
-            paymentIntent = invoiceObject.payment_intent;
+        const loadFromInvoice = async (
+          invoiceLike: Stripe.Invoice | string | null | undefined,
+        ): Promise<{
+          paymentIntent: Stripe.PaymentIntent | null;
+          invoiceId: string | null;
+          paymentIntentReference: string | null;
+          invoiceReferenceType: string | null;
+        }> => {
+          if (!invoiceLike) {
+            return { paymentIntent: null, invoiceId: null, paymentIntentReference: null, invoiceReferenceType: null };
+          }
+
+          if (typeof invoiceLike === "string") {
+            try {
+              const invoice = await stripe.invoices.retrieve(invoiceLike, {
+                expand: ["payment_intent"],
+              });
+              return loadFromInvoice(invoice);
+            } catch (invoiceError) {
+              console.error(`[Stripe] Failed to retrieve invoice ${invoiceLike}:`, invoiceError);
+              return {
+                paymentIntent: null,
+                invoiceId: invoiceLike,
+                paymentIntentReference: null,
+                invoiceReferenceType: "string",
+              };
+            }
+          }
+
+          const invoice = invoiceLike as Stripe.Invoice;
+          const currentInvoiceId = invoice.id ?? null;
+          const invoicePaymentIntent = invoice.payment_intent;
+          const paymentIntentRef =
+            typeof invoicePaymentIntent === "string"
+              ? invoicePaymentIntent
+              : invoicePaymentIntent?.id ?? null;
+
+          if (!invoicePaymentIntent) {
+            return {
+              paymentIntent: null,
+              invoiceId: currentInvoiceId,
+              paymentIntentReference: null,
+              invoiceReferenceType: "object",
+            };
+          }
+
+          if (typeof invoicePaymentIntent === "string") {
+            try {
+              const resolved = await stripe.paymentIntents.retrieve(invoicePaymentIntent);
+              return {
+                paymentIntent: resolved,
+                invoiceId: currentInvoiceId,
+                paymentIntentReference: paymentIntentRef,
+                invoiceReferenceType: "object",
+              };
+            } catch (piError) {
+              console.error(`[Stripe] Failed to retrieve payment intent ${invoicePaymentIntent}:`, piError);
+              return {
+                paymentIntent: null,
+                invoiceId: currentInvoiceId,
+                paymentIntentReference: paymentIntentRef,
+                invoiceReferenceType: "object",
+              };
+            }
+          }
+
+          return {
+            paymentIntent: invoicePaymentIntent,
+            invoiceId: currentInvoiceId,
+            paymentIntentReference: paymentIntentRef,
+            invoiceReferenceType: "object",
+          };
+        };
+
+        while (attempts < maxAttempts && !paymentIntent?.client_secret) {
+          attempts += 1;
+          const result = await loadFromInvoice(invoiceRef);
+          paymentIntent = result.paymentIntent ?? paymentIntent;
+          invoiceId = result.invoiceId ?? invoiceId;
+          paymentIntentReference = result.paymentIntentReference ?? paymentIntentReference;
+          invoiceReferenceType = result.invoiceReferenceType ?? invoiceReferenceType;
+
+          if (paymentIntent?.client_secret) {
+            break;
+          }
+
+          const delayMs = Math.min(500 * attempts, 2000);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+          try {
+            const refreshedSubscription = await stripe.subscriptions.retrieve(subscription.id, {
+              expand: ["latest_invoice.payment_intent"],
+            });
+            invoiceRef = refreshedSubscription.latest_invoice;
+            invoiceReferenceType = invoiceRef ? typeof invoiceRef : invoiceReferenceType;
+          } catch (refreshError) {
+            console.error("[Stripe] Failed to refresh subscription while resolving payment intent:", refreshError);
+            break;
           }
         }
-      } else if (typeof latestInvoice === "string") {
-        const invoice = await stripe.invoices.retrieve(latestInvoice, {
-          expand: ["payment_intent"],
-        });
-        if (invoice.payment_intent) {
-          if (typeof invoice.payment_intent === "string") {
-            paymentIntent = await stripe.paymentIntents.retrieve(invoice.payment_intent);
-          } else {
-            paymentIntent = invoice.payment_intent;
-          }
-        }
-      }
+
+        return { paymentIntent, invoiceId, paymentIntentReference, invoiceReferenceType };
+      };
+
+      const { paymentIntent, invoiceId, paymentIntentReference, invoiceReferenceType } =
+        await resolvePaymentIntent();
 
       if (!paymentIntent?.client_secret) {
+        console.error("[Stripe] Subscription intent missing client secret", {
+          subscriptionId: subscription.id,
+          invoiceId,
+          invoiceReferenceType,
+          paymentIntentId: paymentIntent?.id ?? paymentIntentReference,
+          paymentIntentStatus: paymentIntent?.status,
+        });
         return res.status(500).json({
           error: "Failed to initialize checkout",
           details: "Missing client secret on subscription invoice payment intent",
