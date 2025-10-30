@@ -431,7 +431,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expand: ["latest_invoice.payment_intent"],
       });
 
-      // Finalize the invoice if it's still in draft status
+      // Ensure invoice is finalized and payment_intent is available
       if (subscription.latest_invoice) {
         const invoiceId = typeof subscription.latest_invoice === "string"
           ? subscription.latest_invoice
@@ -439,26 +439,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (invoiceId) {
           try {
-            const invoice = typeof subscription.latest_invoice === "string"
-              ? await stripe.invoices.retrieve(invoiceId)
-              : subscription.latest_invoice;
+            // Always retrieve the invoice with payment_intent expanded
+            const invoice = await stripe.invoices.retrieve(invoiceId, {
+              expand: ["payment_intent"],
+            });
 
-            // Only finalize if invoice is still in draft status
+            // Finalize if still in draft status
             if (invoice.status === "draft") {
               await stripe.invoices.finalizeInvoice(invoiceId);
-
-              // Re-retrieve subscription with updated invoice after finalizing
-              subscription = await stripe.subscriptions.retrieve(subscription.id, {
-                expand: ["latest_invoice.payment_intent"],
+              // Re-retrieve after finalization
+              const finalizedInvoice = await stripe.invoices.retrieve(invoiceId, {
+                expand: ["payment_intent"],
               });
-            } else if (invoice.status === "open" && typeof subscription.latest_invoice === "string") {
-              // If already finalized but we only have the ID, re-retrieve to get full object
-              subscription = await stripe.subscriptions.retrieve(subscription.id, {
-                expand: ["latest_invoice.payment_intent"],
-              });
+              // Update subscription object with the finalized invoice
+              subscription.latest_invoice = finalizedInvoice;
+            } else {
+              // Update subscription object with the retrieved invoice
+              subscription.latest_invoice = invoice;
             }
-          } catch (finalizeError) {
-            console.error("[Stripe] Failed to finalize invoice:", finalizeError);
+          } catch (error) {
+            console.error("[Stripe] Failed to process invoice:", error);
           }
         }
       }
@@ -508,7 +508,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           const invoice = invoiceLike as Stripe.Invoice;
           const currentInvoiceId = invoice.id ?? null;
-          const invoicePaymentIntent = invoice.payment_intent;
+          // TypeScript doesn't recognize payment_intent on Invoice, but it exists in the API
+          const invoicePaymentIntent = (invoice as any).payment_intent;
           const paymentIntentRef =
             typeof invoicePaymentIntent === "string"
               ? invoicePaymentIntent
