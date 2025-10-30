@@ -5,6 +5,7 @@ import {
   insertMenuItemSchema,
   insertSubscriptionSchema,
   tierLimits,
+  type MenuItem,
   type TierLimits,
   type SubscriptionTier,
 } from "../shared/schema.js";
@@ -355,53 +356,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
 
-      // Get user's Stripe customer ID
       const user = await storage.getUser(userId);
       if (!user?.stripeCustomerId) {
         return res.status(404).json({ error: "No Stripe customer found" });
       }
 
-      // Get all subscriptions for this customer from Stripe
+      const existingLocalSubscription = await storage.getActiveSubscription(userId);
+
       const stripeSubscriptions = await stripe.subscriptions.list({
         customer: user.stripeCustomerId,
         status: "all",
         limit: 10,
+        expand: ["data.items.data.price"],
       });
 
-      // Find the most recent active or trialing subscription
-      const activeSubscription = stripeSubscriptions.data.find(
-        (sub) => sub.status === "active" || sub.status === "trialing"
-      );
+      const activeSubscription = stripeSubscriptions.data
+        .filter((sub) => ["active", "trialing", "past_due"].includes(sub.status))
+        .sort((a, b) => (b.current_period_end ?? 0) - (a.current_period_end ?? 0))[0];
 
       if (!activeSubscription) {
         return res.json({ synced: false, message: "No active subscription found in Stripe" });
       }
 
-      // Get tier from metadata
-      const tier = activeSubscription.metadata?.tier as SubscriptionTier | undefined;
+      const subscriptionPriceId = activeSubscription.items?.data?.[0]?.price?.id ?? null;
+      const tierFromPrice = subscriptionPriceId
+        ? (Object.entries(priceIds).find(([, id]) => id === subscriptionPriceId)?.[0] as SubscriptionTier | undefined)
+        : undefined;
+
+      let tier = (activeSubscription.metadata?.tier as SubscriptionTier | undefined)
+        ?? tierFromPrice
+        ?? existingLocalSubscription?.tier;
+
       if (!tier) {
-        return res.status(400).json({ error: "Subscription missing tier metadata" });
+        return res.status(400).json({
+          error: "Subscription missing tier metadata; unable to infer tier from Stripe subscription",
+        });
       }
 
-      // Validate and create dates
-      if (!activeSubscription.current_period_start || !activeSubscription.current_period_end) {
-        return res.status(400).json({ error: "Subscription missing period dates" });
+      const metadataNeedsUpdate =
+        activeSubscription.metadata?.tier !== tier ||
+        activeSubscription.metadata?.userId !== userId;
+
+      if (metadataNeedsUpdate) {
+        try {
+          await stripe.subscriptions.update(activeSubscription.id, {
+            metadata: {
+              ...(activeSubscription.metadata ?? {}),
+              tier,
+              userId,
+            },
+          });
+        } catch (updateError) {
+          console.error("[Stripe] Failed to refresh subscription metadata:", updateError);
+        }
       }
 
-      const currentPeriodStart = new Date(activeSubscription.current_period_start * 1000);
-      const currentPeriodEnd = new Date(activeSubscription.current_period_end * 1000);
+      const periodStartSeconds =
+        activeSubscription.current_period_start ??
+        activeSubscription.trial_start ??
+        activeSubscription.start_date ??
+        null;
 
-      // Validate dates are valid
+      const periodEndSeconds =
+        activeSubscription.current_period_end ??
+        activeSubscription.trial_end ??
+        activeSubscription.cancel_at ??
+        null;
+
+      let currentPeriodStart = periodStartSeconds
+        ? new Date(periodStartSeconds * 1000)
+        : new Date();
+
+      let currentPeriodEnd = periodEndSeconds
+        ? new Date(periodEndSeconds * 1000)
+        : new Date(currentPeriodStart.getTime());
+
+      if (!periodEndSeconds) {
+        currentPeriodEnd.setMonth(currentPeriodEnd.getMonth() + 1);
+      }
+
       if (isNaN(currentPeriodStart.getTime()) || isNaN(currentPeriodEnd.getTime())) {
         return res.status(400).json({ error: "Invalid subscription period dates" });
       }
 
-      // Check if subscription already exists in our database
+      if (currentPeriodEnd <= currentPeriodStart) {
+        currentPeriodEnd = new Date(currentPeriodStart.getTime());
+        currentPeriodEnd.setMonth(currentPeriodEnd.getMonth() + 1);
+      }
+
       const existing = await storage.getSubscriptionByStripeId(activeSubscription.id);
 
       let localSubscription;
       if (existing) {
-        // Update existing subscription
         await storage.updateSubscription(existing.id, {
           status: "active",
           tier,
@@ -411,12 +457,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         localSubscription = await storage.getSubscription(existing.id);
       } else {
-        // Create new subscription
+        const customerId =
+          typeof activeSubscription.customer === "string"
+            ? activeSubscription.customer
+            : activeSubscription.customer?.id ?? user.stripeCustomerId;
+
         localSubscription = await storage.createSubscription({
           userId,
           tier,
           status: "active",
-          stripeCustomerId: user.stripeCustomerId,
+          stripeCustomerId: customerId,
           stripeSubscriptionId: activeSubscription.id,
           currentPeriodStart,
           currentPeriodEnd,
@@ -424,7 +474,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Ensure usage record exists for this billing period
+      const customerId =
+        typeof activeSubscription.customer === "string"
+          ? activeSubscription.customer
+          : activeSubscription.customer?.id ?? user.stripeCustomerId;
+
+      if (!user.stripeSubscriptionId || user.stripeSubscriptionId !== activeSubscription.id || user.stripeCustomerId !== customerId) {
+        await storage.updateUser(userId, {
+          ...(customerId ? { stripeCustomerId: customerId } : {}),
+          stripeSubscriptionId: activeSubscription.id,
+        });
+      }
+
       const usage = await storage.getCurrentUsage(userId);
       if (!usage || usage.subscriptionId !== localSubscription!.id) {
         await storage.createUsageRecord({
@@ -440,7 +501,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         synced: true,
         subscription: localSubscription,
-        message: "Subscription synced successfully"
+        message: "Subscription synced successfully",
       });
     } catch (error) {
       console.error("Error syncing subscription:", error);
@@ -1119,8 +1180,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "Failed to generate description" });
       }
 
-      const data = await response.json();
-      const generatedDescription = data.choices[0]?.message?.content?.trim();
+      const data = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string | null } }>;
+      };
+      const generatedDescription = data.choices?.[0]?.message?.content?.trim();
 
       if (!generatedDescription) {
         return res.status(500).json({ error: "No description generated" });
@@ -1145,8 +1208,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.params.userId;
       const items = await storage.getAllMenuItems(userId);
 
-      // Group items by category
-      const menuByCategory = items.reduce((acc, item) => {
+      type ExtendedMenuItem = MenuItem & {
+        price?: number | null;
+        dietaryInfo?: string | null;
+        displayOrder?: number | null;
+        isAvailable?: boolean | null;
+      };
+
+      type PublicMenuEntry = {
+        id: string;
+        name: string;
+        description: string | null;
+        price: number | null;
+        dietaryInfo: string | null;
+        allergens: string[] | null;
+        generatedImages: string[] | null;
+        displayOrder: number;
+        isAvailable: boolean;
+      };
+
+      const menuByCategory = items.reduce<Record<string, PublicMenuEntry[]>>((acc, rawItem) => {
+        const item = rawItem as ExtendedMenuItem;
         const category = item.category || "Mains";
         if (!acc[category]) {
           acc[category] = [];
@@ -1154,20 +1236,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         acc[category].push({
           id: item.id,
           name: item.name,
-          description: item.description,
-          price: item.price,
-          dietaryInfo: item.dietaryInfo,
-          allergens: item.allergens,
-          generatedImages: item.generatedImages,
-          displayOrder: item.displayOrder,
-          isAvailable: item.isAvailable,
+          description: item.description ?? null,
+          price: item.price ?? null,
+          dietaryInfo: item.dietaryInfo ?? null,
+          allergens: item.allergens ?? null,
+          generatedImages: item.generatedImages ?? null,
+          displayOrder: item.displayOrder ?? 0,
+          isAvailable: item.isAvailable ?? true,
         });
         return acc;
-      }, {} as Record<string, any[]>);
+      }, {});
 
-      // Sort items within each category by displayOrder
-      Object.keys(menuByCategory).forEach(category => {
-        menuByCategory[category].sort((a, b) => a.displayOrder - b.displayOrder);
+      Object.keys(menuByCategory).forEach((category) => {
+        const entries = menuByCategory[category];
+        if (entries) {
+          entries.sort((a, b) => a.displayOrder - b.displayOrder);
+        }
       });
 
       res.json(menuByCategory);
