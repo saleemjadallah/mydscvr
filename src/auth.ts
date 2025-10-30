@@ -17,9 +17,21 @@ export function getSession() {
   const PgStore = connectPg(session);
   const sessionStore = new PgStore({
     pool: pool,
-    createTableIfMissing: false,
+    createTableIfMissing: true,
     ttl: sessionTtl,
     tableName: "sessions",
+  });
+
+  sessionStore.on("connect", () => {
+    console.log("[Session] Connected to Postgres session store");
+  });
+
+  sessionStore.on("disconnect", () => {
+    console.warn("[Session] Disconnected from Postgres session store");
+  });
+
+  sessionStore.on("error", (error: unknown) => {
+    console.error("[Session] Session store error:", error);
   });
 
   const sessionSecret = process.env.SESSION_SECRET;
