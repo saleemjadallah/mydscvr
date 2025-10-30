@@ -1015,7 +1015,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const updates = insertMenuItemSchema.partial().parse(req.body);
+      // Parse and filter out undefined values, but keep null, false, 0, etc.
+      const parsed = insertMenuItemSchema.partial().parse(req.body);
+      const updates = Object.fromEntries(
+        Object.entries(parsed).filter(([_, value]) => value !== undefined)
+      );
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "No valid fields to update" });
+      }
+
       const updatedItem = await storage.updateMenuItem(req.params.id, updates);
 
       res.json(updatedItem);
