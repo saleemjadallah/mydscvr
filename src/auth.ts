@@ -81,13 +81,39 @@ export async function setupAuth(app: Express) {
     try {
       const user = await storage.getUser(id);
       if (!user) {
-        return cb(new Error("User not found"));
+        console.warn(`[Auth] Session references missing user ${id}, returning anonymous user`);
+        return cb(null, false);
       }
       const { passwordHash, ...userWithoutPassword } = user;
       cb(null, userWithoutPassword);
     } catch (error) {
       cb(error);
     }
+  });
+
+  // Clear stale sessions referencing users that no longer exist
+  app.use((req, _res, next) => {
+    try {
+      const sessionUserId =
+        typeof req.session === "object" && req.session !== null
+          ? (req.session as any)?.passport?.user
+          : undefined;
+
+      if (!req.user && sessionUserId) {
+        console.warn(`[Auth] Destroying stale session for user ${sessionUserId}`);
+        if (typeof req.session?.destroy === "function") {
+          return req.session.destroy((err) => {
+            if (err) {
+              console.error("[Auth] Failed to destroy stale session:", err);
+            }
+            next();
+          });
+        }
+      }
+    } catch (error) {
+      console.error("[Auth] Stale session cleanup error:", error);
+    }
+    next();
   });
 
   // Register route
