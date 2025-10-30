@@ -431,7 +431,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expand: ["latest_invoice.payment_intent"],
       });
 
-      // Finalize the invoice if it has auto_advance: false
+      // Finalize the invoice if it's still in draft status
       if (subscription.latest_invoice) {
         const invoiceId = typeof subscription.latest_invoice === "string"
           ? subscription.latest_invoice
@@ -443,10 +443,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
               ? await stripe.invoices.retrieve(invoiceId)
               : subscription.latest_invoice;
 
-            if (!invoice.auto_advance && invoice.status === "open") {
+            // Only finalize if invoice is still in draft status
+            if (invoice.status === "draft") {
               await stripe.invoices.finalizeInvoice(invoiceId);
 
               // Re-retrieve subscription with updated invoice after finalizing
+              subscription = await stripe.subscriptions.retrieve(subscription.id, {
+                expand: ["latest_invoice.payment_intent"],
+              });
+            } else if (invoice.status === "open" && typeof subscription.latest_invoice === "string") {
+              // If already finalized but we only have the ID, re-retrieve to get full object
               subscription = await stripe.subscriptions.retrieve(subscription.id, {
                 expand: ["latest_invoice.payment_intent"],
               });
