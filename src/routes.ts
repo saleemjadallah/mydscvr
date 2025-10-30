@@ -428,39 +428,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userId,
           tier,
         },
-        expand: ["latest_invoice.payment_intent"],
+        // Use confirmation_secret instead of payment_intent (Stripe API change Oct 2025)
+        expand: ["latest_invoice.confirmation_secret"],
       });
 
-      // Ensure invoice is finalized and payment_intent is available
-      if (subscription.latest_invoice) {
+      // Get client_secret directly from confirmation_secret (new Stripe API approach)
+      let clientSecret: string | null = null;
+
+      if (subscription.latest_invoice && typeof subscription.latest_invoice !== "string") {
+        const invoice = subscription.latest_invoice as any;
+
+        // Check for confirmation_secret first (new API)
+        if (invoice.confirmation_secret?.client_secret) {
+          clientSecret = invoice.confirmation_secret.client_secret;
+        } else if (invoice.confirmation_secret && typeof invoice.confirmation_secret === "string") {
+          // If confirmation_secret is just a string, we have the client_secret directly
+          clientSecret = invoice.confirmation_secret;
+        }
+      }
+
+      // If we don't have client_secret yet, try to get it via payment_intent (fallback)
+      if (!clientSecret && subscription.latest_invoice) {
         const invoiceId = typeof subscription.latest_invoice === "string"
           ? subscription.latest_invoice
           : subscription.latest_invoice.id;
 
         if (invoiceId) {
           try {
-            // Always retrieve the invoice with payment_intent expanded
+            // Try both confirmation_secret and payment_intent
             const invoice = await stripe.invoices.retrieve(invoiceId, {
-              expand: ["payment_intent"],
+              expand: ["confirmation_secret", "payment_intent"],
             });
 
-            // Finalize if still in draft status
-            if (invoice.status === "draft") {
-              await stripe.invoices.finalizeInvoice(invoiceId);
-              // Re-retrieve after finalization
-              const finalizedInvoice = await stripe.invoices.retrieve(invoiceId, {
-                expand: ["payment_intent"],
-              });
-              // Update subscription object with the finalized invoice
-              subscription.latest_invoice = finalizedInvoice;
-            } else {
-              // Update subscription object with the retrieved invoice
-              subscription.latest_invoice = invoice;
+            // Try confirmation_secret first
+            const invoiceData = invoice as any;
+            if (invoiceData.confirmation_secret?.client_secret) {
+              clientSecret = invoiceData.confirmation_secret.client_secret;
+            } else if (invoiceData.confirmation_secret && typeof invoiceData.confirmation_secret === "string") {
+              clientSecret = invoiceData.confirmation_secret;
+            } else if (invoiceData.payment_intent?.client_secret) {
+              // Fallback to payment_intent if available
+              clientSecret = invoiceData.payment_intent.client_secret;
+            } else if (invoiceData.payment_intent && typeof invoiceData.payment_intent === "string") {
+              // If payment_intent is a string ID, retrieve it
+              const paymentIntent = await stripe.paymentIntents.retrieve(invoiceData.payment_intent);
+              clientSecret = paymentIntent.client_secret;
             }
           } catch (error) {
-            console.error("[Stripe] Failed to process invoice:", error);
+            console.error("[Stripe] Failed to retrieve invoice details:", error);
           }
         }
+      }
+
+      // If we have the client_secret directly, return it immediately
+      if (clientSecret) {
+        return res.json({
+          subscriptionId: subscription.id,
+          clientSecret: clientSecret,
+          tier,
+        });
       }
 
       const resolvePaymentIntent = async (): Promise<{
