@@ -431,8 +431,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expand: ["latest_invoice.payment_intent"],
       });
 
-      const latestInvoice = subscription.latest_invoice as Stripe.Invoice | null;
-      const paymentIntent = latestInvoice?.payment_intent as Stripe.PaymentIntent | null;
+      const latestInvoice = subscription.latest_invoice;
+      let paymentIntent: Stripe.PaymentIntent | null = null;
+
+      if (latestInvoice && typeof latestInvoice === "object" && "payment_intent" in latestInvoice) {
+        const invoiceObject = latestInvoice as Stripe.Invoice;
+        if (invoiceObject.payment_intent) {
+          if (typeof invoiceObject.payment_intent === "string") {
+            paymentIntent = await stripe.paymentIntents.retrieve(invoiceObject.payment_intent);
+          } else {
+            paymentIntent = invoiceObject.payment_intent;
+          }
+        }
+      } else if (typeof latestInvoice === "string") {
+        const invoice = await stripe.invoices.retrieve(latestInvoice, {
+          expand: ["payment_intent"],
+        });
+        if (invoice.payment_intent) {
+          if (typeof invoice.payment_intent === "string") {
+            paymentIntent = await stripe.paymentIntents.retrieve(invoice.payment_intent);
+          } else {
+            paymentIntent = invoice.payment_intent;
+          }
+        }
+      }
 
       if (!paymentIntent?.client_secret) {
         return res.status(500).json({
