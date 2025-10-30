@@ -133,7 +133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : invoice.subscription?.id;
 
       if (!stripeSubscriptionId) {
-        console.warn("[Webhook] Invoice missing subscription reference");
+        console.log("[Webhook] Invoice missing subscription reference (likely already handled by subscription.updated)");
         return res.json({ received: true });
       }
 
