@@ -22,15 +22,62 @@ export function getSession() {
     tableName: "sessions",
   });
 
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret) {
+    throw new Error("Missing SESSION_SECRET environment variable for session management");
+  }
+
+  const normalized = (value?: string | null) => (value ?? "").toLowerCase();
+  const envCandidates = [
+    normalized(process.env.DEPLOYMENT_ENV),
+    normalized(process.env.NODE_ENV),
+    normalized(process.env.RAILWAY_ENVIRONMENT),
+  ];
+
+  const productionSignals = new Set(["production", "prod", "preview", "staging"]);
+  const isProductionLike = envCandidates.some((value) => productionSignals.has(value));
+
+  const cookieSecure = process.env.SESSION_COOKIE_SECURE
+    ? process.env.SESSION_COOKIE_SECURE === "true"
+    : isProductionLike;
+
+  const sameSiteOverride = normalized(process.env.SESSION_COOKIE_SAMESITE);
+  const cookieSameSite =
+    sameSiteOverride === "none" || sameSiteOverride === "lax" || sameSiteOverride === "strict"
+      ? (sameSiteOverride as "none" | "lax" | "strict")
+      : cookieSecure
+        ? "none"
+        : "lax";
+
+  const cookieDomain = process.env.SESSION_COOKIE_DOMAIN?.trim() || undefined;
+
+  console.log(
+    `[Session] secure=${cookieSecure} sameSite=${cookieSameSite}` +
+      (cookieDomain ? ` domain=${cookieDomain}` : "") +
+      ` envCandidates=${envCandidates.filter(Boolean).join(",") || "unknown"}`
+  );
+
+  if (!cookieSecure && cookieSameSite !== "lax") {
+    console.warn("[Session] Non-secure cookies should use sameSite=lax for cross-site safety");
+  }
+
+  if (!cookieSecure) {
+    console.warn(
+      "[Session] Session cookies are not marked secure. Cross-site requests will fail on modern browsers. " +
+        "Set SESSION_COOKIE_SECURE=true or ensure NODE_ENV/DEPLOYMENT_ENV indicate production."
+    );
+  }
+
   return session({
-    secret: process.env.SESSION_SECRET!,
+    secret: sessionSecret,
     store: sessionStore,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      secure: cookieSecure,
+      sameSite: cookieSameSite,
+      domain: cookieDomain,
       maxAge: sessionTtl,
     },
   });
