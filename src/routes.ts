@@ -259,6 +259,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/subscriptions/sync - Manually sync subscription from Stripe
+  app.post("/api/subscriptions/sync", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+
+      // Get user's Stripe customer ID
+      const user = await storage.getUserById(userId);
+      if (!user?.stripeCustomerId) {
+        return res.status(404).json({ error: "No Stripe customer found" });
+      }
+
+      // Get all subscriptions for this customer from Stripe
+      const stripeSubscriptions = await stripe.subscriptions.list({
+        customer: user.stripeCustomerId,
+        status: "all",
+        limit: 10,
+      });
+
+      // Find the most recent active or trialing subscription
+      const activeSubscription = stripeSubscriptions.data.find(
+        (sub) => sub.status === "active" || sub.status === "trialing"
+      );
+
+      if (!activeSubscription) {
+        return res.json({ synced: false, message: "No active subscription found in Stripe" });
+      }
+
+      // Get tier from metadata
+      const tier = activeSubscription.metadata?.tier as SubscriptionTier | undefined;
+      if (!tier) {
+        return res.status(400).json({ error: "Subscription missing tier metadata" });
+      }
+
+      const currentPeriodStart = new Date(activeSubscription.current_period_start * 1000);
+      const currentPeriodEnd = new Date(activeSubscription.current_period_end * 1000);
+
+      // Check if subscription already exists in our database
+      const existing = await storage.getSubscriptionByStripeId(activeSubscription.id);
+
+      let localSubscription;
+      if (existing) {
+        // Update existing subscription
+        await storage.updateSubscription(existing.id, {
+          status: "active",
+          tier,
+          currentPeriodStart,
+          currentPeriodEnd,
+          cancelAtPeriodEnd: activeSubscription.cancel_at_period_end ? 1 : 0,
+        });
+        localSubscription = await storage.getSubscription(existing.id);
+      } else {
+        // Create new subscription
+        localSubscription = await storage.createSubscription({
+          userId,
+          tier,
+          status: "active",
+          stripeCustomerId: user.stripeCustomerId,
+          stripeSubscriptionId: activeSubscription.id,
+          currentPeriodStart,
+          currentPeriodEnd,
+          cancelAtPeriodEnd: activeSubscription.cancel_at_period_end ? 1 : 0,
+        });
+      }
+
+      // Ensure usage record exists for this billing period
+      const usage = await storage.getCurrentUsage(userId);
+      if (!usage || usage.subscriptionId !== localSubscription!.id) {
+        await storage.createUsageRecord({
+          userId,
+          subscriptionId: localSubscription!.id,
+          dishesGenerated: 0,
+          imagesGenerated: 0,
+          billingPeriodStart: currentPeriodStart,
+          billingPeriodEnd: currentPeriodEnd,
+        });
+      }
+
+      res.json({
+        synced: true,
+        subscription: localSubscription,
+        message: "Subscription synced successfully"
+      });
+    } catch (error) {
+      console.error("Error syncing subscription:", error);
+      res.status(500).json({ error: "Failed to sync subscription" });
+    }
+  });
+
   // POST /api/subscriptions - Create new subscription
   app.post("/api/subscriptions", isAuthenticated, async (req: any, res) => {
     try {
