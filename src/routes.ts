@@ -292,6 +292,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================
+  // USER PROFILE ROUTES
+  // ============================================
+
+  // PATCH /api/user/profile - Update user profile information
+  app.patch("/api/user/profile", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { firstName, lastName } = req.body;
+
+      // Validate input
+      const updateSchema = z.object({
+        firstName: z.string().optional(),
+        lastName: z.string().optional(),
+      });
+
+      const validated = updateSchema.parse({ firstName, lastName });
+
+      // Update user profile
+      const updatedUser = await storage.updateUser(userId, validated);
+
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error updating user profile:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid input", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update profile" });
+    }
+  });
+
+  // GET /api/subscription - Get user's current subscription (alias for compatibility)
+  app.get("/api/subscription", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const subscription = await storage.getActiveSubscription(userId);
+      res.json(subscription || null);
+    } catch (error) {
+      console.error("Error fetching subscription:", error);
+      res.status(500).json({ error: "Failed to fetch subscription" });
+    }
+  });
+
+  // ============================================
   // SUBSCRIPTION ROUTES
   // ============================================
 
