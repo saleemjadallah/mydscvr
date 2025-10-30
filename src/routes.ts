@@ -832,6 +832,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/create-portal-session - Create Stripe Customer Portal session
+  app.post("/api/create-portal-session", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // User must have a Stripe customer ID to access the portal
+      if (!user.stripeCustomerId) {
+        return res.status(400).json({
+          error: "No billing account found. Please subscribe to a plan first."
+        });
+      }
+
+      // Create a billing portal session
+      const session = await stripe.billingPortal.sessions.create({
+        customer: user.stripeCustomerId,
+        return_url: `${req.headers.origin || 'http://localhost:5000'}/settings`,
+      });
+
+      res.json({ url: session.url });
+    } catch (error) {
+      console.error("Error creating portal session:", error);
+      res.status(500).json({
+        error: "Failed to create portal session",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
   // PATCH /api/subscriptions/:id - Update subscription
   app.patch("/api/subscriptions/:id", isAuthenticated, async (req: any, res) => {
     try {
