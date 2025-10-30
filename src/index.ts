@@ -9,18 +9,29 @@ dotenv.config();
 const app = express();
 
 // CORS configuration
-const defaultAllowedOrigins = ['http://localhost:5173', 'https://mydscvr.ai'];
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
+const defaultAllowedOrigins = ["http://localhost:5173", "https://mydscvr.ai"];
+const configuredOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim()).filter(Boolean)
   : defaultAllowedOrigins;
+
+const normalizeOrigin = (value?: string | null) =>
+  (value ?? "").toLowerCase().replace(/\/$/, "");
+
+const allowedOrigins = configuredOrigins.map(normalizeOrigin);
+
+console.log("[CORS] Allowed origins:", allowedOrigins);
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
 
-    if (allowedOrigins.includes(origin)) {
+    const normalizedOrigin = normalizeOrigin(origin);
+
+    if (allowedOrigins.includes(normalizedOrigin)) {
       callback(null, true);
     } else {
+      console.warn(`[CORS] Blocked origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
