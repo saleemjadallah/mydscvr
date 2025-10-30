@@ -1076,6 +1076,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
+      console.log("[MenuItem Update] Received body:", JSON.stringify(req.body));
+
       // Parse and filter out undefined values, but keep null, false, 0, etc.
       const parsed = insertMenuItemSchema.partial().parse(req.body);
       const updates = Object.fromEntries(
@@ -1092,6 +1094,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating menu item:", error);
       if (error instanceof z.ZodError) {
+        console.log("[MenuItem Update] Zod validation errors:", JSON.stringify(error.errors));
         return res.status(400).json({ error: "Invalid update data", details: error.errors });
       }
       res.status(500).json({ error: "Failed to update menu item" });
