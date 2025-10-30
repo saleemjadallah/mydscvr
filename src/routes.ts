@@ -1,7 +1,13 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
-import { insertMenuItemSchema, insertSubscriptionSchema, tierLimits, type TierLimits } from "../shared/schema.js";
+import {
+  insertMenuItemSchema,
+  insertSubscriptionSchema,
+  tierLimits,
+  type TierLimits,
+  type SubscriptionTier,
+} from "../shared/schema.js";
 import { generateImageBase64 } from "./openai.js";
 import { setupAuth, isAuthenticated } from "./auth.js";
 import { z } from "zod";
@@ -28,39 +34,45 @@ console.log('[Stripe] Initializing Stripe with API version 2025-09-30.clover');
 console.log('[Stripe] Using key:', stripeSecretKey.substring(0, 12) + '...');
 
 const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: '2025-09-30.clover',
+  apiVersion: "2025-09-30.clover",
 });
 
 const TRIAL_DISH_LIMIT = 3;
-  const TRIAL_IMAGES_PER_DISH = 3;
-  const VARIATION_VIEWS = ["Centered plating", "Slightly angled view", "Close-up detail shot"] as const;
+const TRIAL_IMAGES_PER_DISH = 3;
+const VARIATION_VIEWS = [
+  "Centered plating",
+  "Slightly angled view",
+  "Close-up detail shot",
+] as const;
 
-  const getImageSize = (style: string, quality: "preview" | "final"): string => {
-    const isDelivery = style === "Delivery App";
-    if (quality === "preview") {
-      return isDelivery ? "1024x682" : "768x768";
-    }
-    return isDelivery ? "1536x1024" : "1536x1536";
-  };
+const priceIds = {
+  starter: process.env.STRIPE_STARTER_PRICE_ID ?? "",
+  pro: process.env.STRIPE_PRO_PRICE_ID ?? "",
+  enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID ?? "",
+};
 
-  const buildPrompt = (
-    index: number,
-    stylePrompt: string,
-    dishName: string,
-    description: string,
-    ingredientsList: string,
-    quality: "preview" | "final",
-    style: string
-  ): string => {
-    const view = VARIATION_VIEWS[index] ?? VARIATION_VIEWS[VARIATION_VIEWS.length - 1];
-    const resolutionHint = getImageSize(style, quality);
-    const qualityHint =
-      quality === "preview"
-        ? `Render a quick low-resolution preview (approximately ${resolutionHint}) to evaluate composition.`
-        : `Produce a detailed, production-ready high-resolution image (approximately ${resolutionHint}).`;
+if (!priceIds.starter || !priceIds.pro) {
+  throw new Error(
+    "Missing required Stripe price IDs. Set STRIPE_STARTER_PRICE_ID and STRIPE_PRO_PRICE_ID environment variables."
+  );
+}
 
-    return `${dishName}${description ? `: ${description}` : ""}${ingredientsList}. ${stylePrompt}. ${view}. ${qualityHint} High-end restaurant quality, award-winning food photography, ultra realistic.`;
-  };
+const buildPrompt = (
+  index: number,
+  stylePrompt: string,
+  dishName: string,
+  description: string,
+  ingredientsList: string,
+  quality: "preview" | "final"
+): string => {
+  const view = VARIATION_VIEWS[index] ?? VARIATION_VIEWS[VARIATION_VIEWS.length - 1];
+  const resolutionHint =
+    quality === "preview"
+      ? "Render a quick preview that loads fast while keeping composition clear."
+      : "Render a production-ready, high-resolution image suitable for download.";
+
+  return `${dishName}${description ? `: ${description}` : ""}${ingredientsList}. ${stylePrompt}. ${view}. ${resolutionHint} High-end restaurant quality, award-winning food photography, ultra realistic.`;
+};
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================
@@ -73,95 +85,155 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // STRIPE WEBHOOK
   // ============================================
 
-  app.post("/api/stripe/webhook", async (req: any, res) => {
-    const sig = req.headers['stripe-signature'] as string;
-    const rawBody = req.rawBody as Buffer; // Use the raw body captured by express.json verify
-
-    let event;
-    try {
-      event = stripe.webhooks.constructEvent(rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET || '');
-    } catch (err: any) {
-      console.error('[Webhook] Signature verification failed:', err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
+  app.post("/api/stripe/webhook", async (req: Request, res: Response) => {
+    const sigHeader = req.headers["stripe-signature"];
+    if (!sigHeader) {
+      console.error("[Webhook] Missing stripe-signature header");
+      return res.status(400).send("Webhook Error: Missing stripe-signature header");
     }
 
-    console.log('[Webhook] Received event:', event.type);
+    const rawBody = req.rawBody;
+    if (!(rawBody instanceof Buffer)) {
+      console.error("[Webhook] rawBody was not preserved");
+      return res.status(400).send("Webhook Error: Invalid payload");
+    }
 
-    // Handle payment_intent.succeeded event
-    if (event.type === 'payment_intent.succeeded') {
-      const paymentIntent = event.data.object as any;
-      console.log('[Webhook] Payment succeeded:', paymentIntent.id);
-      console.log('[Webhook] Customer:', paymentIntent.customer);
-      console.log('[Webhook] Metadata:', paymentIntent.metadata);
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        rawBody,
+        sigHeader,
+        process.env.STRIPE_WEBHOOK_SECRET || ""
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown signature verification error";
+      console.error("[Webhook] Signature verification failed:", message);
+      return res.status(400).send(`Webhook Error: ${message}`);
+    }
+
+    console.log("[Webhook] Received event:", event.type);
+
+    if (event.type === "invoice.payment_succeeded") {
+      const invoice = event.data.object as Stripe.Invoice;
+
+      if (
+        invoice.billing_reason !== "subscription_create" &&
+        invoice.billing_reason !== "subscription_cycle"
+      ) {
+        return res.json({ received: true });
+      }
+
+      const stripeSubscriptionId =
+        typeof invoice.subscription === "string"
+          ? invoice.subscription
+          : invoice.subscription?.id;
+
+      if (!stripeSubscriptionId) {
+        console.warn("[Webhook] Invoice missing subscription reference");
+        return res.json({ received: true });
+      }
 
       try {
-        const { userId, tier, subscription_setup } = paymentIntent.metadata;
+        const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId, {
+          expand: ["latest_invoice"],
+        });
 
-        if (subscription_setup === 'true' && userId && tier) {
-          console.log('[Webhook] Creating subscription for user:', userId);
+        const userId = subscription.metadata?.userId;
+        const tier = subscription.metadata?.tier as SubscriptionTier | undefined;
 
-          // Create price for recurring subscription
-          const prices: Record<string, number> = {
-            starter: 9900, // AED 99
-            pro: 29900,    // AED 299
-            enterprise: 0,
-          };
+        if (!userId || !tier) {
+          console.warn("[Webhook] Subscription metadata missing userId or tier");
+          return res.json({ received: true });
+        }
 
-          const price = await stripe.prices.create({
-            currency: "aed",
-            unit_amount: prices[tier],
-            recurring: {
-              interval: "month",
-            },
-            product_data: {
-              name: `Virtual Food Photographer - ${tier.charAt(0).toUpperCase() + tier.slice(1)}`,
-            },
-          });
+        const stripeCustomerId =
+          typeof subscription.customer === "string"
+            ? subscription.customer
+            : subscription.customer?.id ?? null;
 
-          // Create Stripe subscription
-          const subscription = await stripe.subscriptions.create({
-            customer: paymentIntent.customer,
-            items: [{ price: price.id }],
-            default_payment_method: paymentIntent.payment_method,
-            metadata: {
-              userId,
-              tier,
-            },
-          });
+        const currentPeriodStart = subscription.current_period_start
+          ? new Date(subscription.current_period_start * 1000)
+          : new Date();
+        const currentPeriodEnd = subscription.current_period_end
+          ? new Date(subscription.current_period_end * 1000)
+          : new Date();
 
-          console.log('[Webhook] Stripe subscription created:', subscription.id);
+        const existing = await storage.getSubscriptionByStripeId(stripeSubscriptionId);
 
-          // Create local subscription record
-          const now = new Date();
-          const periodEnd = new Date(now);
-          periodEnd.setMonth(periodEnd.getMonth() + 1);
-
-          const localSubscription = await storage.createSubscription({
+        let localSubscription = existing;
+        if (!localSubscription) {
+          localSubscription = await storage.createSubscription({
             userId,
-            tier: tier as any,
+            tier,
             status: "active",
-            stripeCustomerId: paymentIntent.customer,
-            stripeSubscriptionId: subscription.id,
-            currentPeriodStart: now,
-            currentPeriodEnd: periodEnd,
-            cancelAtPeriodEnd: 0,
+            stripeCustomerId: stripeCustomerId ?? null,
+            stripeSubscriptionId,
+            currentPeriodStart,
+            currentPeriodEnd,
+            cancelAtPeriodEnd: subscription.cancel_at_period_end ? 1 : 0,
           });
+        } else {
+          await storage.updateSubscription(localSubscription.id, {
+            status: "active",
+            stripeCustomerId: stripeCustomerId ?? null,
+            currentPeriodStart,
+            currentPeriodEnd,
+            cancelAtPeriodEnd: subscription.cancel_at_period_end ? 1 : 0,
+          });
+        }
 
-          // Create initial usage record using the local subscription ID
+        const usage = await storage.getCurrentUsage(userId);
+        if (!usage || usage.subscriptionId !== localSubscription.id) {
           await storage.createUsageRecord({
             userId,
-            subscriptionId: localSubscription.id, // Use local DB subscription ID, not Stripe ID
+            subscriptionId: localSubscription.id,
             dishesGenerated: 0,
             imagesGenerated: 0,
-            billingPeriodStart: now,
-            billingPeriodEnd: periodEnd,
+            billingPeriodStart: currentPeriodStart,
+            billingPeriodEnd: currentPeriodEnd,
           });
-
-          console.log('[Webhook] Subscription setup complete');
         }
+
+        console.log("[Webhook] Subscription synchronized:", stripeSubscriptionId);
       } catch (error) {
-        console.error('[Webhook] Error creating subscription:', error);
+        console.error("[Webhook] Error syncing subscription:", error);
       }
+    } else if (
+      event.type === "customer.subscription.deleted" ||
+      event.type === "customer.subscription.updated"
+    ) {
+      const subscription = event.data.object as Stripe.Subscription;
+      const stripeSubscriptionId = subscription.id;
+      const storedSubscription = await storage.getSubscriptionByStripeId(stripeSubscriptionId);
+      if (!storedSubscription) {
+        return res.json({ received: true });
+      }
+
+      const statusMap: Record<Stripe.Subscription.Status, "active" | "cancelled" | "past_due" | "trialing"> = {
+        active: "active",
+        past_due: "past_due",
+        trialing: "trialing",
+        canceled: "cancelled",
+        unpaid: "past_due",
+        incomplete: "past_due",
+        incomplete_expired: "cancelled",
+        paused: "past_due",
+      };
+
+      const mappedStatus =
+        statusMap[subscription.status] ?? storedSubscription.status;
+
+      await storage.updateSubscription(storedSubscription.id, {
+        status: mappedStatus,
+        cancelAtPeriodEnd: subscription.cancel_at_period_end ? 1 : 0,
+        currentPeriodStart: subscription.current_period_start
+          ? new Date(subscription.current_period_start * 1000)
+          : storedSubscription.currentPeriodStart,
+        currentPeriodEnd: subscription.current_period_end
+          ? new Date(subscription.current_period_end * 1000)
+          : storedSubscription.currentPeriodEnd,
+      });
+
     }
 
     res.json({ received: true });
@@ -242,101 +314,138 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/create-subscription-intent - Create Stripe subscription payment intent
   app.post("/api/create-subscription-intent", isAuthenticated, async (req: any, res) => {
     try {
-      console.log('[Subscription Intent] ========== STARTING ==========');
       const userId = req.user.id;
       const user = await storage.getUser(userId);
 
       if (!user) {
-        console.log('[Subscription Intent] ERROR: User not found:', userId);
         return res.status(404).json({ error: "User not found" });
       }
 
-      const { tier } = z.object({
-        tier: z.enum(["starter", "pro"]),
-      }).parse(req.body);
+      const { tier } = z
+        .object({
+          tier: z.enum(["starter", "pro"]),
+        })
+        .parse(req.body);
 
-      console.log('[Subscription Intent] Creating for tier:', tier);
-      console.log('[Subscription Intent] User ID:', userId);
-      console.log('[Subscription Intent] User email:', user.email);
+      if (!priceIds[tier]) {
+        return res.status(500).json({ error: `Pricing configuration missing for tier '${tier}'` });
+      }
 
-      // Pricing in AED (cents)
-      const prices = {
-        starter: 9900, // AED 99.00
-        pro: 29900,    // AED 299.00
-      };
-
-      console.log('[Subscription Intent] Price:', prices[tier], 'AED cents');
+      const existingSubscription = await storage.getActiveSubscription(userId);
+      if (existingSubscription) {
+        return res.status(400).json({ error: "User already has an active subscription" });
+      }
 
       let customerId = user.stripeCustomerId;
-
-      // Create or retrieve Stripe customer
       if (!customerId) {
-        console.log('[Subscription Intent] Creating new Stripe customer for:', user.email);
         const customer = await stripe.customers.create({
           email: user.email || undefined,
           metadata: { userId },
         });
         customerId = customer.id;
-        console.log('[Subscription Intent] Created customer:', customerId);
         await storage.updateUser(userId, { stripeCustomerId: customerId });
-      } else {
-        console.log('[Subscription Intent] Using existing customer:', customerId);
       }
 
-      // Create a standalone PaymentIntent for the first payment
-      console.log('[Subscription Intent] Creating PaymentIntent for first payment...');
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: prices[tier],
-        currency: "aed",
+      const subscriptionsList = await stripe.subscriptions.list({
         customer: customerId,
-        setup_future_usage: 'off_session', // Save card for future subscription payments
-        metadata: {
-          userId,
-          tier,
-          subscription_setup: 'true',
-        },
+        status: "all",
+        limit: 20,
+        expand: ["data.latest_invoice.payment_intent", "data.items.data.price"],
       });
 
-      console.log('[Subscription Intent] ========== PAYMENT INTENT CREATED ==========');
-      console.log('[Subscription Intent] PaymentIntent ID:', paymentIntent.id);
-      console.log('[Subscription Intent] PaymentIntent status:', paymentIntent.status);
-      console.log('[Subscription Intent] Client secret:', paymentIntent.client_secret ? 'present' : 'MISSING');
+      const existingStripeSubscription = subscriptionsList.data.find((sub) => {
+        if (sub.metadata?.userId !== userId) {
+          return false;
+        }
+        const blockingStatuses: Stripe.Subscription.Status[] = [
+          "active",
+          "trialing",
+          "past_due",
+          "incomplete",
+        ];
+        return blockingStatuses.includes(sub.status);
+      });
 
-      if (!paymentIntent.client_secret) {
-        console.error('[Subscription Intent] ERROR: No client secret on PaymentIntent!');
-        return res.status(500).json({
-          error: "Failed to get client secret from Stripe",
-          details: "Payment intent was created but has no client_secret"
+      if (existingStripeSubscription) {
+        if (existingStripeSubscription.status === "active" || existingStripeSubscription.status === "trialing") {
+          return res.status(400).json({
+            error: "User already has an active subscription",
+          });
+        }
+
+        const latestInvoice = existingStripeSubscription.latest_invoice as Stripe.Invoice | null;
+        const paymentIntent = latestInvoice?.payment_intent as Stripe.PaymentIntent | null;
+
+        if (paymentIntent?.client_secret) {
+          const currentItem = existingStripeSubscription.items.data[0];
+          const desiredPrice = priceIds[tier as keyof typeof priceIds];
+
+          if (currentItem && currentItem.price?.id !== desiredPrice) {
+            try {
+              await stripe.subscriptions.update(existingStripeSubscription.id, {
+                items: [
+                  {
+                    id: currentItem.id,
+                    price: desiredPrice,
+                  },
+                ],
+                metadata: {
+                  ...existingStripeSubscription.metadata,
+                  tier,
+                },
+              });
+            } catch (updateError) {
+              console.error("[Stripe] Failed to retarget incomplete subscription price:", updateError);
+            }
+          }
+
+          return res.json({
+            subscriptionId: existingStripeSubscription.id,
+            clientSecret: paymentIntent.client_secret,
+            tier,
+            resumed: true,
+          });
+        }
+
+        return res.status(400).json({
+          error: "Existing subscription requires attention from support before retrying checkout.",
         });
       }
 
-      // Store payment intent ID and tier for webhook processing
-      await storage.updateUser(userId, {
-        stripeCustomerId: customerId,
-      });
-
-      // Store the tier in metadata so we can create subscription after payment
-      // Update the payment intent to include tier in metadata
-      await stripe.paymentIntents.update(paymentIntent.id, {
+      const subscription = await stripe.subscriptions.create({
+        customer: customerId,
+        items: [{ price: priceIds[tier as keyof typeof priceIds] }],
+        payment_behavior: "default_incomplete",
+        payment_settings: {
+          save_default_payment_method: "on_subscription",
+        },
         metadata: {
-          ...paymentIntent.metadata,
+          userId,
           tier,
         },
+        expand: ["latest_invoice.payment_intent"],
       });
 
-      const response = {
-        paymentIntentId: paymentIntent.id,
+      const latestInvoice = subscription.latest_invoice as Stripe.Invoice | null;
+      const paymentIntent = latestInvoice?.payment_intent as Stripe.PaymentIntent | null;
+
+      if (!paymentIntent?.client_secret) {
+        return res.status(500).json({
+          error: "Failed to initialize checkout",
+          details: "Missing client secret on subscription invoice payment intent",
+        });
+      }
+
+      res.json({
+        subscriptionId: subscription.id,
         clientSecret: paymentIntent.client_secret,
         tier,
-      };
-
-      console.log('[Subscription Intent] Sending response with clientSecret');
-      res.json(response);
+      });
     } catch (error) {
       console.error("Stripe subscription error:", error);
       res.status(500).json({
         error: "Failed to create subscription intent",
-        details: error instanceof Error ? error.message : "Unknown error"
+        details: error instanceof Error ? error.message : "Unknown error",
       });
     }
   });
@@ -619,12 +728,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           dishName,
           description ?? '',
           ingredientsList,
-          "preview",
-          style
+          "preview"
         );
 
         try {
-          return await generateImageBase64(variationPrompt);
+          const startedAt = process.hrtime.bigint();
+          const result = await generateImageBase64(variationPrompt);
+          const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+          console.log(
+            `[Gemini] Preview ${dishName} [${index + 1}/${imagesPerDish}] generated in ${elapsedMs.toFixed(
+              0
+            )}ms`
+          );
+          return result;
         } catch (error) {
           console.error("Preview generation failed:", error);
           return null;
@@ -704,25 +820,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No valid image indices provided" });
       }
 
-      const generateHighResVariant = async (index: number): Promise<string | null> => {
+      const totalHighRes = uniqueIndices.length;
+      const generateHighResVariant = async (index: number, ordinal: number): Promise<string | null> => {
         const variationPrompt: string = buildPrompt(
           index,
           stylePrompt,
           dishName,
           description ?? '',
           ingredientsList,
-          "final",
-          style
+          "final"
         );
         try {
-          return await generateImageBase64(variationPrompt);
+          const startedAt = process.hrtime.bigint();
+          const result = await generateImageBase64(variationPrompt);
+          const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+          console.log(
+            `[Gemini] High-res ${dishName} [${ordinal + 1}/${totalHighRes}] (view ${index + 1}) generated in ${elapsedMs.toFixed(
+              0
+            )}ms`
+          );
+          return result;
         } catch (error) {
           console.error("High-res generation failed:", error);
           return null;
         }
       };
 
-      const highResResults = await Promise.all(uniqueIndices.map((index) => generateHighResVariant(index)));
+      const highResResults = await Promise.all(
+        uniqueIndices.map((index, ordinal) => generateHighResVariant(index, ordinal))
+      );
       if (highResResults.some((url) => !url)) {
         return res.status(500).json({ error: "Failed to generate high-resolution images" });
       }
