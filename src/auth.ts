@@ -63,9 +63,18 @@ export function getSession() {
 
   const cookieDomain = process.env.SESSION_COOKIE_DOMAIN?.trim() || undefined;
 
+  // CRITICAL: For cross-origin requests, domain must be undefined
+  if (cookieDomain) {
+    console.warn(
+      `[Session] SESSION_COOKIE_DOMAIN is set to '${cookieDomain}'. ` +
+      `This will prevent cross-origin session sharing between frontend and backend. ` +
+      `For mydscvr.ai frontend with Railway backend, leave SESSION_COOKIE_DOMAIN unset.`
+    );
+  }
+
   console.log(
     `[Session] secure=${cookieSecure} sameSite=${cookieSameSite}` +
-      (cookieDomain ? ` domain=${cookieDomain}` : "") +
+      (cookieDomain ? ` domain=${cookieDomain}` : " domain=undefined (cross-origin compatible)") +
       ` envCandidates=${envCandidates.filter(Boolean).join(",") || "unknown"}`
   );
 
@@ -273,7 +282,6 @@ export async function setupAuth(app: Express) {
                 return res.status(500).json({ message: "Session save failed" });
               }
               
-              console.log(`[Auth] User ${user.id} logged in via OTP, session ID: ${req.sessionID}`);
               res.json(user);
             });
           });
@@ -315,8 +323,6 @@ export async function setupAuth(app: Express) {
                 return res.status(500).json({ message: "Session save failed" });
               }
               
-              console.log(`[Auth] User ${user.id} verified and logged in, session ID: ${req.sessionID}`);
-              
               // Send welcome email after successful verification
               void sendWelcomeEmail({
                 email: user.email!,
@@ -345,16 +351,13 @@ export async function setupAuth(app: Express) {
   app.post("/api/auth/login", (req, res, next) => {
     passport.authenticate("local", (err: any, user: any, info: any) => {
       if (err) {
-        console.error("[Auth] Authentication error:", err);
         return res.status(500).json({ message: "Authentication error" });
       }
       if (!user) {
-        console.warn("[Auth] Login failed:", info?.message || "Invalid credentials");
         return res.status(401).json({ message: info?.message || "Invalid credentials" });
       }
       req.login(user, (err) => {
         if (err) {
-          console.error("[Auth] req.login failed:", err);
           return res.status(500).json({ message: "Login failed" });
         }
         
@@ -365,8 +368,7 @@ export async function setupAuth(app: Express) {
             return res.status(500).json({ message: "Session save failed" });
           }
           
-          console.log(`[Auth] User ${user.id} logged in successfully, session ID: ${req.sessionID}`);
-          console.log(`[Auth] Session cookie settings: secure=${req.session.cookie.secure}, sameSite=${req.session.cookie.sameSite}, httpOnly=${req.session.cookie.httpOnly}`);
+          console.log(`[Auth] User ${user.id} logged in successfully`);
           res.json(user);
         });
       });
@@ -400,17 +402,13 @@ export async function setupAuth(app: Express) {
 }
 
 export const isAuthenticated: RequestHandler = (req, res, next) => {
-  const userId = (req.user as any)?.id || 'none';
-  console.log(`[Auth] isAuthenticated check - sessionID: ${req.sessionID}, authenticated: ${req.isAuthenticated()}, user: ${userId}`);
-  console.log(`[Auth] Session data:`, JSON.stringify({
-    passport: (req.session as any)?.passport,
-    cookie: req.session?.cookie
-  }));
-  
   if (req.isAuthenticated()) {
     return next();
   }
   
-  console.warn(`[Auth] Request unauthorized - path: ${req.path}, sessionID: ${req.sessionID}`);
+  // Log unauthorized requests for debugging (can be removed in production)
+  const userId = (req.user as any)?.id || 'none';
+  console.warn(`[Auth] Unauthorized request - path: ${req.path}, sessionID: ${req.sessionID}, user: ${userId}`);
+  
   res.status(401).json({ message: "Unauthorized" });
 };
