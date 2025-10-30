@@ -265,7 +265,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.id;
 
       // Get user's Stripe customer ID
-      const user = await storage.getUserById(userId);
+      const user = await storage.getUser(userId);
       if (!user?.stripeCustomerId) {
         return res.status(404).json({ error: "No Stripe customer found" });
       }
