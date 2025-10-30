@@ -416,7 +416,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const subscription = await stripe.subscriptions.create({
+      let subscription = await stripe.subscriptions.create({
         customer: customerId,
         items: [{ price: priceIds[tier as keyof typeof priceIds] }],
         payment_behavior: "default_incomplete",
@@ -430,6 +430,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         expand: ["latest_invoice.payment_intent"],
       });
+
+      // Finalize the invoice if it has auto_advance: false
+      if (subscription.latest_invoice) {
+        const invoiceId = typeof subscription.latest_invoice === "string"
+          ? subscription.latest_invoice
+          : subscription.latest_invoice.id;
+
+        if (invoiceId) {
+          try {
+            const invoice = typeof subscription.latest_invoice === "string"
+              ? await stripe.invoices.retrieve(invoiceId)
+              : subscription.latest_invoice;
+
+            if (!invoice.auto_advance && invoice.status === "open") {
+              await stripe.invoices.finalizeInvoice(invoiceId);
+
+              // Re-retrieve subscription with updated invoice after finalizing
+              subscription = await stripe.subscriptions.retrieve(subscription.id, {
+                expand: ["latest_invoice.payment_intent"],
+              });
+            }
+          } catch (finalizeError) {
+            console.error("[Stripe] Failed to finalize invoice:", finalizeError);
+          }
+        }
+      }
 
       const resolvePaymentIntent = async (): Promise<{
         paymentIntent: Stripe.PaymentIntent | null;
