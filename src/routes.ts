@@ -437,7 +437,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paymentIntentReference: string | null;
         invoiceReferenceType: string | null;
       }> => {
-        const maxAttempts = 5;
+        const maxAttempts = 10;
         let attempts = 0;
         let invoiceRef = subscription.latest_invoice;
         let paymentIntent: Stripe.PaymentIntent | null = null;
@@ -531,7 +531,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             break;
           }
 
-          const delayMs = Math.min(500 * attempts, 2000);
+          if (attempts >= maxAttempts) {
+            break;
+          }
+
+          const delayMs = Math.min(1000 * attempts, 5000);
           await new Promise((resolve) => setTimeout(resolve, delayMs));
 
           try {
