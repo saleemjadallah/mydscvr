@@ -292,8 +292,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Subscription missing tier metadata" });
       }
 
+      // Validate and create dates
+      if (!activeSubscription.current_period_start || !activeSubscription.current_period_end) {
+        return res.status(400).json({ error: "Subscription missing period dates" });
+      }
+
       const currentPeriodStart = new Date(activeSubscription.current_period_start * 1000);
       const currentPeriodEnd = new Date(activeSubscription.current_period_end * 1000);
+
+      // Validate dates are valid
+      if (isNaN(currentPeriodStart.getTime()) || isNaN(currentPeriodEnd.getTime())) {
+        return res.status(400).json({ error: "Invalid subscription period dates" });
+      }
 
       // Check if subscription already exists in our database
       const existing = await storage.getSubscriptionByStripeId(activeSubscription.id);
@@ -914,6 +924,123 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting menu item:", error);
       res.status(500).json({ error: "Failed to delete menu item" });
+    }
+  });
+
+  // POST /api/menu-items/generate-description - Generate AI description for a dish
+  app.post("/api/menu-items/generate-description", isAuthenticated, async (req: any, res) => {
+    try {
+      const generateDescriptionSchema = z.object({
+        name: z.string().min(1),
+        ingredients: z.array(z.string()).optional(),
+        description: z.string().optional(),
+      });
+
+      const { name, ingredients, description } = generateDescriptionSchema.parse(req.body);
+
+      // Build prompt for OpenAI
+      let prompt = `Write a concise, appetizing menu description (2-3 sentences max) for a dish called "${name}".`;
+
+      if (ingredients && ingredients.length > 0) {
+        prompt += ` The dish includes: ${ingredients.join(", ")}.`;
+      }
+
+      if (description) {
+        prompt += ` Additional context: ${description}`;
+      }
+
+      prompt += ` The description should be professional, enticing, and suitable for a restaurant menu. Focus on flavors, textures, and presentation.`;
+
+      // Call OpenAI API
+      const openaiApiKey = process.env.OPENAI_API_KEY;
+      if (!openaiApiKey) {
+        return res.status(500).json({ error: "OpenAI API key not configured" });
+      }
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${openaiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: "You are a professional restaurant menu writer. Create appetizing, concise descriptions that highlight flavors and presentation.",
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          max_tokens: 150,
+          temperature: 0.7,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("OpenAI API error:", errorData);
+        return res.status(500).json({ error: "Failed to generate description" });
+      }
+
+      const data = await response.json();
+      const generatedDescription = data.choices[0]?.message?.content?.trim();
+
+      if (!generatedDescription) {
+        return res.status(500).json({ error: "No description generated" });
+      }
+
+      res.json({ description: generatedDescription });
+    } catch (error) {
+      console.error("Description generation error:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      res.status(500).json({
+        error: "Failed to generate description",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  // GET /api/menu-items/public/:userId - Get public menu (no auth required)
+  app.get("/api/menu-items/public/:userId", async (req: Request, res: Response) => {
+    try {
+      const userId = req.params.userId;
+      const items = await storage.getAllMenuItems(userId);
+
+      // Group items by category
+      const menuByCategory = items.reduce((acc, item) => {
+        const category = item.category || "Mains";
+        if (!acc[category]) {
+          acc[category] = [];
+        }
+        acc[category].push({
+          id: item.id,
+          name: item.name,
+          description: item.description,
+          price: item.price,
+          dietaryInfo: item.dietaryInfo,
+          allergens: item.allergens,
+          generatedImages: item.generatedImages,
+          displayOrder: item.displayOrder,
+          isAvailable: item.isAvailable,
+        });
+        return acc;
+      }, {} as Record<string, any[]>);
+
+      // Sort items within each category by displayOrder
+      Object.keys(menuByCategory).forEach(category => {
+        menuByCategory[category].sort((a, b) => a.displayOrder - b.displayOrder);
+      });
+
+      res.json(menuByCategory);
+    } catch (error) {
+      console.error("Error fetching public menu:", error);
+      res.status(500).json({ error: "Failed to fetch menu" });
     }
   });
 
