@@ -152,6 +152,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.json({ received: true });
         }
 
+        // Check if user exists before creating subscription
+        const userExists = await storage.getUser(userId);
+        if (!userExists) {
+          console.warn(`[Webhook] User ${userId} not found, skipping subscription creation`);
+          return res.json({ received: true });
+        }
+
         const stripeCustomerId =
           typeof subscription.customer === "string"
             ? subscription.customer
@@ -232,6 +239,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (!userId || !tier) {
           console.warn("[Webhook] Subscription metadata missing userId or tier in subscription.updated");
+          return res.json({ received: true });
+        }
+
+        // Check if user exists before creating subscription
+        const userExists = await storage.getUser(userId);
+        if (!userExists) {
+          console.warn(`[Webhook] User ${userId} not found in subscription.updated, skipping`);
           return res.json({ received: true });
         }
 
