@@ -184,6 +184,14 @@ export const usageRecordsRelations = relations(usageRecords, ({ one }) => ({
 export const styleOptions = ["Rustic/Dark", "Bright/Modern", "Social Media", "Delivery App"] as const;
 export type StyleOption = typeof styleOptions[number];
 
+// Only Rustic/Dark and Bright/Modern can be added to menu items
+export const menuItemStyleOptions = ["Rustic/Dark", "Bright/Modern"] as const;
+export type MenuItemStyleOption = typeof menuItemStyleOptions[number];
+
+// Social Media and Delivery App are for downloads only
+export const downloadOnlyStyleOptions = ["Social Media", "Delivery App"] as const;
+export type DownloadOnlyStyleOption = typeof downloadOnlyStyleOptions[number];
+
 export const allergenOptions = [
   "Nuts",
   "Dairy",

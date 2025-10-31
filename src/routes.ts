@@ -5,6 +5,7 @@ import {
   insertMenuItemSchema,
   insertSubscriptionSchema,
   tierLimits,
+  menuItemStyleOptions,
   type MenuItem,
   type TierLimits,
   type SubscriptionTier,
@@ -1310,6 +1311,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { menuItemId, style, dishName, description, ingredients } =
         generateImageSchema.parse(req.body);
 
+      // Check if style is allowed for menu items (only for saving to menu)
+      const isMenuItemStyle = menuItemStyleOptions.includes(style as any);
+      const isDownloadOnlyStyle = !isMenuItemStyle;
+
       // Validate menu item exists and belongs to user
       const menuItem = await storage.getMenuItem(menuItemId);
       if (!menuItem) {
@@ -1319,10 +1324,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      // Check edit count limit (max 2 edits per dish)
+      // Check edit count limit (max 2 edits per dish) - only for menu item styles
       const MAX_EDITS = 2;
       const currentEditCount = (menuItem as any).editCount || 0;
-      if (currentEditCount >= MAX_EDITS) {
+      if (!isDownloadOnlyStyle && currentEditCount >= MAX_EDITS) {
         return res.status(403).json({
           error: "Edit limit reached",
           message: `You've already regenerated images for this dish ${MAX_EDITS} times. You cannot regenerate images for this dish anymore.`,
@@ -1428,17 +1433,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const imageUrls = await uploadImagesToR2(base64Images, `${menuItemId}`);
       console.log(`[R2] Successfully uploaded images to R2`);
 
-      // Update menu item with R2 URLs and increment edit count
-      const updatedItem = await storage.updateMenuItem(menuItemId, {
-        generatedImages: imageUrls,
-        selectedStyle: style,
-        editCount: currentEditCount + 1,
-      });
+      // Only update menu item if style is allowed for menu items
+      let updatedItem;
+      if (isDownloadOnlyStyle) {
+        // For download-only styles, don't save to menu item, just return images
+        console.log(`[Images] Download-only style "${style}" - images not saved to menu item`);
+        updatedItem = menuItem;
+      } else {
+        // Update menu item with R2 URLs and increment edit count
+        updatedItem = await storage.updateMenuItem(menuItemId, {
+          generatedImages: imageUrls,
+          selectedStyle: style,
+          editCount: currentEditCount + 1,
+        });
+      }
 
       // Track usage: 1 dish generated, N images created
       await storage.incrementUsage(userId, 1, imageUrls.length);
 
-      res.json({ images: imageUrls, menuItem: updatedItem });
+      res.json({
+        images: imageUrls,
+        menuItem: updatedItem,
+        downloadOnly: isDownloadOnlyStyle,
+      });
     } catch (error) {
       console.error("Image generation error:", error);
       res.status(500).json({
