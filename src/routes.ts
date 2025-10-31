@@ -1305,9 +1305,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         images: z.array(z.string()),
         selectedStyle: z.string(),
         action: z.enum(["save", "download"]), // "save" = save to menu, "download" = just download
+        // Include all menu item fields that might have been updated during generation
+        name: z.string().optional(),
+        description: z.string().nullable().optional(),
+        ingredients: z.array(z.string()).nullable().optional(),
+        category: z.string().optional(),
+        price: z.string().nullable().optional(),
+        dietaryInfo: z.array(z.string()).nullable().optional(),
+        allergens: z.array(z.string()).nullable().optional(),
       });
 
-      const { images, selectedStyle, action } = finalizeSchema.parse(req.body);
+      const { images, selectedStyle, action, ...menuItemUpdates } = finalizeSchema.parse(req.body);
 
       // Validate menu item exists and belongs to user
       const menuItem = await storage.getMenuItem(menuItemId);
@@ -1335,7 +1343,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update menu item only if saving (not just downloading)
       let updatedItem = menuItem;
       if (action === "save") {
+        // Filter out undefined values from menuItemUpdates
+        const updates = Object.fromEntries(
+          Object.entries(menuItemUpdates).filter(([_, value]) => value !== undefined)
+        );
+
         updatedItem = await storage.updateMenuItem(menuItemId, {
+          ...updates,
           generatedImages: images,
           selectedStyle: selectedStyle,
           editCount: currentEditCount + 1,
