@@ -1257,7 +1257,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isAvailable: boolean;
       };
 
-      const menuByCategory = items.reduce<Record<string, PublicMenuEntry[]>>((acc, rawItem) => {
+      // Only show items that have been finalized (have images)
+      const finalizedItems = items.filter(item =>
+        item.generatedImages &&
+        Array.isArray(item.generatedImages) &&
+        item.generatedImages.length > 0
+      );
+
+      const menuByCategory = finalizedItems.reduce<Record<string, PublicMenuEntry[]>>((acc, rawItem) => {
         const item = rawItem as ExtendedMenuItem;
         const category = item.category || "Mains";
         if (!acc[category]) {
