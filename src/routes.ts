@@ -11,6 +11,7 @@ import {
 } from "../shared/schema.js";
 import { generateImageBase64 } from "./openai.js";
 import { setupAuth, isAuthenticated } from "./auth.js";
+import { uploadImagesToR2, deleteImagesFromR2 } from "./r2-storage.js";
 import { z } from "zod";
 import Stripe from "stripe";
 
@@ -1116,6 +1117,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
+      // Delete images from R2 if they exist
+      if (item.generatedImages && item.generatedImages.length > 0) {
+        const r2Images = item.generatedImages.filter(url => url && url.startsWith('http'));
+        if (r2Images.length > 0) {
+          console.log(`[R2] Deleting ${r2Images.length} images from R2...`);
+          await deleteImagesFromR2(r2Images).catch(err =>
+            console.error('[R2] Failed to delete images:', err)
+          );
+        }
+      }
+
       const deleted = await storage.deleteMenuItem(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -1395,9 +1407,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "Failed to generate preview images" });
       }
 
-      const imageUrls = previewResults.filter((url): url is string => Boolean(url));
+      const base64Images = previewResults.filter((url): url is string => Boolean(url));
 
-      // Update menu item with generated images and increment edit count
+      // Upload images to R2 and get public URLs
+      console.log(`[R2] Uploading ${base64Images.length} images to R2...`);
+      const imageUrls = await uploadImagesToR2(base64Images, `${menuItemId}`);
+      console.log(`[R2] Successfully uploaded images to R2`);
+
+      // Update menu item with R2 URLs and increment edit count
       const updatedItem = await storage.updateMenuItem(menuItemId, {
         generatedImages: imageUrls,
         selectedStyle: style,
@@ -1496,11 +1513,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const b64Images = highResResults.filter((url): url is string => Boolean(url));
 
+      // Upload high-res images to R2
+      console.log(`[R2] Uploading ${b64Images.length} high-res images to R2...`);
+      const r2Urls = await uploadImagesToR2(b64Images, `${menuItemId}-highres`);
+      console.log(`[R2] Successfully uploaded high-res images to R2`);
+
+      // Replace old URLs with new high-res R2 URLs
       const updatedImages = [...(menuItem.generatedImages ?? [])];
       uniqueIndices.forEach((index, idx) => {
-        const imageValue = b64Images[idx];
-        if (imageValue) {
-          updatedImages[index] = imageValue;
+        const r2Url = r2Urls[idx];
+        if (r2Url) {
+          // Delete old image from R2 if it exists
+          const oldUrl = updatedImages[index];
+          if (oldUrl && oldUrl.startsWith('http')) {
+            deleteImagesFromR2([oldUrl]).catch(err =>
+              console.error('[R2] Failed to delete old image:', err)
+            );
+          }
+          updatedImages[index] = r2Url;
         }
       });
 
