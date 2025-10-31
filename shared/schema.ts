@@ -129,6 +129,7 @@ export const menuItems = pgTable("menu_items", {
   allergens: text("allergens").array(),
   generatedImages: text("generated_images").array(),
   selectedStyle: text("selected_style"),
+  editCount: integer("edit_count").default(0), // Track number of times images have been regenerated
   createdAt: timestamp("created_at").defaultNow(),
 });
 

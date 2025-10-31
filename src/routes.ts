@@ -1293,6 +1293,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
+      // Check edit count limit (max 2 edits per dish)
+      const MAX_EDITS = 2;
+      const currentEditCount = (menuItem as any).editCount || 0;
+      if (currentEditCount >= MAX_EDITS) {
+        return res.status(403).json({
+          error: "Edit limit reached",
+          message: `You've already regenerated images for this dish ${MAX_EDITS} times. You cannot regenerate images for this dish anymore.`,
+          editCount: currentEditCount,
+          maxEdits: MAX_EDITS,
+        });
+      }
+
       // Check subscription and usage limits
       const subscription = await storage.getActiveSubscription(userId);
       const usage = await storage.getCurrentUsage(userId);
@@ -1385,10 +1397,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const imageUrls = previewResults.filter((url): url is string => Boolean(url));
 
-      // Update menu item with generated images
+      // Update menu item with generated images and increment edit count
       const updatedItem = await storage.updateMenuItem(menuItemId, {
         generatedImages: imageUrls,
         selectedStyle: style,
+        editCount: currentEditCount + 1,
       });
 
       // Track usage: 1 dish generated, N images created
