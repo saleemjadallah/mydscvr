@@ -149,7 +149,7 @@ export const establishmentSettings = pgTable("establishment_settings", {
     .$type<FontFamily>(),
 
   // Layout Preferences
-  itemsPerPage: integer("items_per_page").notNull().default(8),
+  itemsPerPage: integer("items_per_page").notNull().default(12),
   showPageNumbers: integer("show_page_numbers").notNull().default(1),
   showEstablishmentOnEveryPage: integer("show_establishment_on_every_page").notNull().default(0),
 
