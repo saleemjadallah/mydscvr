@@ -3,6 +3,7 @@ import {
   menuItems,
   subscriptions,
   usageRecords,
+  establishmentSettings,
   type User,
   type UpsertUser,
   type MenuItem,
@@ -11,6 +12,8 @@ import {
   type InsertSubscription,
   type UsageRecord,
   type InsertUsageRecord,
+  type EstablishmentSettings,
+  type InsertEstablishmentSettings,
   otpCodes,
   type InsertOtpCode,
   type OtpCode,
@@ -51,6 +54,11 @@ export interface IStorage {
   createOtpCode(code: InsertOtpCode): Promise<OtpCode>;
   findOtpCode(userId: string, purpose: OTPPurpose, code: string): Promise<OtpCode | undefined>;
   deleteOtpCodesForUser(userId: string, purpose: OTPPurpose): Promise<void>;
+
+  // Establishment settings operations
+  getEstablishmentSettings(userId: string): Promise<EstablishmentSettings | undefined>;
+  createEstablishmentSettings(settings: InsertEstablishmentSettings): Promise<EstablishmentSettings>;
+  updateEstablishmentSettings(userId: string, updates: Partial<InsertEstablishmentSettings>): Promise<EstablishmentSettings | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -372,6 +380,39 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(otpCodes)
       .where(and(eq(otpCodes.userId, userId), eq(otpCodes.purpose, purpose)));
+  }
+
+  // ============================================
+  // ESTABLISHMENT SETTINGS OPERATIONS
+  // ============================================
+
+  async getEstablishmentSettings(userId: string): Promise<EstablishmentSettings | undefined> {
+    const [settings] = await db
+      .select()
+      .from(establishmentSettings)
+      .where(eq(establishmentSettings.userId, userId))
+      .limit(1);
+    return settings;
+  }
+
+  async createEstablishmentSettings(settings: InsertEstablishmentSettings): Promise<EstablishmentSettings> {
+    const [created] = await db
+      .insert(establishmentSettings)
+      .values(settings)
+      .returning();
+    return created;
+  }
+
+  async updateEstablishmentSettings(
+    userId: string,
+    updates: Partial<InsertEstablishmentSettings>
+  ): Promise<EstablishmentSettings | undefined> {
+    const [updated] = await db
+      .update(establishmentSettings)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(establishmentSettings.userId, userId))
+      .returning();
+    return updated;
   }
 }
 

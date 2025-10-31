@@ -4,11 +4,13 @@ import { storage } from "./storage.js";
 import {
   insertMenuItemSchema,
   insertSubscriptionSchema,
+  insertEstablishmentSettingsSchema,
   tierLimits,
   menuItemStyleOptions,
   type MenuItem,
   type TierLimits,
   type SubscriptionTier,
+  type EstablishmentSettings,
 } from "../shared/schema.js";
 import { generateImageBase64 } from "./openai.js";
 import { setupAuth, isAuthenticated } from "./auth.js";
@@ -1657,6 +1659,151 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({
         error: "Failed to generate images",
         details: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // ============================================
+  // ESTABLISHMENT SETTINGS ENDPOINTS
+  // ============================================
+
+  /**
+   * Get establishment settings for the authenticated user
+   * Creates default settings if none exist
+   */
+  app.get("/api/establishment-settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+
+      let settings = await storage.getEstablishmentSettings(userId);
+
+      // Create default settings if none exist
+      if (!settings) {
+        settings = await storage.createEstablishmentSettings({
+          userId,
+          establishmentName: "Menu",
+          tagline: null,
+          logoUrl: null,
+          coverStyle: "classic",
+          accentColor: "#C85A54",
+          fontFamily: "serif",
+          itemsPerPage: 8,
+          showPageNumbers: 1,
+          showEstablishmentOnEveryPage: 0,
+        });
+      }
+
+      // Convert integer booleans to boolean for frontend
+      const response = {
+        ...settings,
+        showPageNumbers: Boolean(settings.showPageNumbers),
+        showEstablishmentOnEveryPage: Boolean(settings.showEstablishmentOnEveryPage),
+      };
+
+      res.json(response);
+    } catch (error) {
+      console.error("Error fetching establishment settings:", error);
+      res.status(500).json({
+        error: "Failed to fetch establishment settings",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
+   * Update establishment settings for the authenticated user
+   */
+  app.put("/api/establishment-settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+
+      // Validate input
+      const updateSchema = insertEstablishmentSettingsSchema.partial().omit({ userId: true });
+      const validatedData = updateSchema.parse(req.body);
+
+      // Convert boolean to integer for database
+      const dbData = {
+        ...validatedData,
+        showPageNumbers: validatedData.showPageNumbers !== undefined
+          ? Number(validatedData.showPageNumbers)
+          : undefined,
+        showEstablishmentOnEveryPage: validatedData.showEstablishmentOnEveryPage !== undefined
+          ? Number(validatedData.showEstablishmentOnEveryPage)
+          : undefined,
+      };
+
+      const updatedSettings = await storage.updateEstablishmentSettings(userId, dbData);
+
+      if (!updatedSettings) {
+        return res.status(404).json({ error: "Establishment settings not found" });
+      }
+
+      // Convert integer booleans to boolean for frontend
+      const response = {
+        ...updatedSettings,
+        showPageNumbers: Boolean(updatedSettings.showPageNumbers),
+        showEstablishmentOnEveryPage: Boolean(updatedSettings.showEstablishmentOnEveryPage),
+      };
+
+      res.json(response);
+    } catch (error) {
+      console.error("Error updating establishment settings:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          error: "Invalid input",
+          details: error.errors,
+        });
+      }
+      res.status(500).json({
+        error: "Failed to update establishment settings",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
+   * Get public establishment settings by user ID (for public menu)
+   */
+  app.get("/api/establishment-settings/public/:userId", async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.params;
+
+      const settings = await storage.getEstablishmentSettings(userId);
+
+      if (!settings) {
+        // Return default settings if none exist
+        return res.json({
+          establishmentName: "Menu",
+          tagline: null,
+          logoUrl: null,
+          coverStyle: "classic",
+          accentColor: "#C85A54",
+          fontFamily: "serif",
+          itemsPerPage: 8,
+          showPageNumbers: true,
+          showEstablishmentOnEveryPage: false,
+        });
+      }
+
+      // Convert integer booleans to boolean and only return public fields
+      const publicSettings = {
+        establishmentName: settings.establishmentName,
+        tagline: settings.tagline,
+        logoUrl: settings.logoUrl,
+        coverStyle: settings.coverStyle,
+        accentColor: settings.accentColor,
+        fontFamily: settings.fontFamily,
+        itemsPerPage: settings.itemsPerPage,
+        showPageNumbers: Boolean(settings.showPageNumbers),
+        showEstablishmentOnEveryPage: Boolean(settings.showEstablishmentOnEveryPage),
+      };
+
+      res.json(publicSettings);
+    } catch (error) {
+      console.error("Error fetching public establishment settings:", error);
+      res.status(500).json({
+        error: "Failed to fetch establishment settings",
+        details: error instanceof Error ? error.message : "Unknown error",
       });
     }
   });
