@@ -1295,6 +1295,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // IMAGE GENERATION ROUTE (With usage tracking and limits)
   // ============================================
 
+  // POST /api/menu-items/:id/finalize - Save generated images to menu and count usage
+  app.post("/api/menu-items/:id/finalize", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const menuItemId = req.params.id;
+
+      const finalizeSchema = z.object({
+        images: z.array(z.string()),
+        selectedStyle: z.string(),
+        action: z.enum(["save", "download"]), // "save" = save to menu, "download" = just download
+      });
+
+      const { images, selectedStyle, action } = finalizeSchema.parse(req.body);
+
+      // Validate menu item exists and belongs to user
+      const menuItem = await storage.getMenuItem(menuItemId);
+      if (!menuItem) {
+        return res.status(404).json({ error: "Menu item not found" });
+      }
+      if (menuItem.userId && menuItem.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Check if style is allowed for menu items
+      const isMenuItemStyle = menuItemStyleOptions.includes(selectedStyle as any);
+      const isDownloadOnlyStyle = !isMenuItemStyle;
+
+      // For "save" action with download-only styles, return error
+      if (action === "save" && isDownloadOnlyStyle) {
+        return res.status(400).json({
+          error: "Cannot save download-only style to menu",
+          message: `The "${selectedStyle}" style can only be downloaded, not saved to menu items.`,
+        });
+      }
+
+      const currentEditCount = (menuItem as any).editCount || 0;
+
+      // Update menu item only if saving (not just downloading)
+      let updatedItem = menuItem;
+      if (action === "save") {
+        updatedItem = await storage.updateMenuItem(menuItemId, {
+          generatedImages: images,
+          selectedStyle: selectedStyle,
+          editCount: currentEditCount + 1,
+        });
+      }
+
+      // Track usage: 1 dish finalized, N images created
+      await storage.incrementUsage(userId, 1, images.length);
+
+      console.log(`[Finalize] Dish ${menuItemId} finalized with action: ${action}`);
+
+      res.json({
+        menuItem: updatedItem,
+        action,
+        success: true,
+      });
+    } catch (error) {
+      console.error("Finalize error:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      res.status(500).json({
+        error: "Failed to finalize dish",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
   // POST /api/generate-images - Generate food photography using OpenAI
   app.post("/api/generate-images", isAuthenticated, async (req: any, res) => {
     try {
@@ -1430,31 +1499,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Upload images to R2 and get public URLs
       console.log(`[R2] Uploading ${base64Images.length} images to R2...`);
-      const imageUrls = await uploadImagesToR2(base64Images, `${menuItemId}`);
+      const imageUrls = await uploadImagesToR2(base64Images, `${menuItemId}-preview`);
       console.log(`[R2] Successfully uploaded images to R2`);
 
-      // Only update menu item if style is allowed for menu items
-      let updatedItem;
-      if (isDownloadOnlyStyle) {
-        // For download-only styles, don't save to menu item, just return images
-        console.log(`[Images] Download-only style "${style}" - images not saved to menu item`);
-        updatedItem = menuItem;
-      } else {
-        // Update menu item with R2 URLs and increment edit count
-        updatedItem = await storage.updateMenuItem(menuItemId, {
-          generatedImages: imageUrls,
-          selectedStyle: style,
-          editCount: currentEditCount + 1,
-        });
-      }
-
-      // Track usage: 1 dish generated, N images created
-      await storage.incrementUsage(userId, 1, imageUrls.length);
+      // DO NOT save images to menu item or increment usage yet
+      // User must explicitly save to menu or download for it to count
+      console.log(`[Images] Preview generated - not counting against usage until saved/downloaded`);
 
       res.json({
         images: imageUrls,
-        menuItem: updatedItem,
+        menuItem: menuItem, // Return original menu item, not updated
         downloadOnly: isDownloadOnlyStyle,
+        isPreview: true, // Flag to indicate these are preview images
       });
     } catch (error) {
       console.error("Image generation error:", error);
