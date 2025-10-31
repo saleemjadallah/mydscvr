@@ -116,17 +116,72 @@ export type InsertUsageRecord = z.infer<typeof insertUsageRecordSchema>;
 export type UsageRecord = typeof usageRecords.$inferSelect;
 
 // ============================================
+// ESTABLISHMENT SETTINGS TABLE
+// ============================================
+
+export const coverStyles = ["classic", "modern", "rustic"] as const;
+export type CoverStyle = typeof coverStyles[number];
+
+export const fontFamilies = ["serif", "sans-serif", "modern"] as const;
+export type FontFamily = typeof fontFamilies[number];
+
+export const establishmentSettings = pgTable("establishment_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" })
+    .unique(),
+
+  // Establishment Info
+  establishmentName: text("establishment_name").notNull().default("Menu"),
+  tagline: text("tagline"),
+  logoUrl: text("logo_url"),
+
+  // Menu Book Styling
+  coverStyle: varchar("cover_style", { length: 50 })
+    .notNull()
+    .default("classic")
+    .$type<CoverStyle>(),
+  accentColor: varchar("accent_color", { length: 7 }).notNull().default("#C85A54"),
+  fontFamily: varchar("font_family", { length: 50 })
+    .notNull()
+    .default("serif")
+    .$type<FontFamily>(),
+
+  // Layout Preferences
+  itemsPerPage: integer("items_per_page").notNull().default(8),
+  showPageNumbers: integer("show_page_numbers").notNull().default(1),
+  showEstablishmentOnEveryPage: integer("show_establishment_on_every_page").notNull().default(0),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertEstablishmentSettingsSchema = createInsertSchema(establishmentSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertEstablishmentSettings = z.infer<typeof insertEstablishmentSettingsSchema>;
+export type EstablishmentSettings = typeof establishmentSettings.$inferSelect;
+
+// ============================================
 // MENU ITEMS TABLE (Updated with userId)
 // ============================================
 
 export const menuItems = pgTable("menu_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }), // Temporarily optional until auth is implemented
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
   category: text("category"),
   ingredients: text("ingredients").array(),
   allergens: text("allergens").array(),
+  dietaryInfo: text("dietary_info").array(), // ["Vegetarian", "Gluten-Free", "Spicy"]
+  price: text("price"), // Store as text to handle different currencies
+  displayOrder: integer("display_order").notNull().default(0),
+  isAvailable: integer("is_available").notNull().default(1), // 1 = true, 0 = false
   generatedImages: text("generated_images").array(),
   selectedStyle: text("selected_style"),
   editCount: integer("edit_count").default(0), // Track number of times images have been regenerated
@@ -145,10 +200,18 @@ export type MenuItem = typeof menuItems.$inferSelect;
 // RELATIONS
 // ============================================
 
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ one, many }) => ({
   menuItems: many(menuItems),
   subscriptions: many(subscriptions),
   usageRecords: many(usageRecords),
+  establishmentSettings: one(establishmentSettings),
+}));
+
+export const establishmentSettingsRelations = relations(establishmentSettings, ({ one }) => ({
+  user: one(users, {
+    fields: [establishmentSettings.userId],
+    references: [users.id],
+  }),
 }));
 
 export const menuItemsRelations = relations(menuItems, ({ one }) => ({
