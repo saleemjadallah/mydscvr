@@ -4,7 +4,6 @@ import { storage } from "./storage.js";
 import {
   insertMenuItemSchema,
   insertSubscriptionSchema,
-  insertEstablishmentSettingsSchema,
   tierLimits,
   menuItemStyleOptions,
   type MenuItem,
@@ -1700,9 +1699,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
 
-      // Validate input
-      const updateSchema = insertEstablishmentSettingsSchema.partial().omit({ userId: true });
-      const validatedData = updateSchema.parse(req.body);
+      // Create a custom validation schema that accepts booleans for the boolean fields
+      const apiUpdateSchema = z.object({
+        establishmentName: z.string().optional(),
+        tagline: z.string().nullable().optional(),
+        logoUrl: z.string().nullable().optional(),
+        coverStyle: z.enum(["classic", "modern", "rustic"]).optional(),
+        accentColor: z.string().optional(),
+        fontFamily: z.enum(["serif", "sans-serif", "modern"]).optional(),
+        itemsPerPage: z.number().optional(),
+        showPageNumbers: z.union([z.boolean(), z.number()]).optional(),
+        showEstablishmentOnEveryPage: z.union([z.boolean(), z.number()]).optional(),
+      });
+
+      const validatedData = apiUpdateSchema.parse(req.body);
 
       // Convert boolean to integer for database
       const dbData = {
@@ -1750,6 +1760,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/establishment-settings/public/:userId", async (req: Request, res: Response) => {
     try {
       const { userId } = req.params;
+
+      if (!userId) {
+        return res.status(400).json({ error: "User ID is required" });
+      }
 
       const settings = await storage.getEstablishmentSettings(userId);
 
