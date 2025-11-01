@@ -629,59 +629,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (sub.metadata?.userId !== userId) {
           return false;
         }
+        // Only block truly active subscriptions, not incomplete ones
         const blockingStatuses: Stripe.Subscription.Status[] = [
           "active",
           "trialing",
           "past_due",
-          "incomplete",
         ];
         return blockingStatuses.includes(sub.status);
       });
 
       if (existingStripeSubscription) {
-        if (existingStripeSubscription.status === "active" || existingStripeSubscription.status === "trialing") {
-          return res.status(400).json({
-            error: "User already has an active subscription",
-          });
-        }
-
-        const latestInvoice = existingStripeSubscription.latest_invoice as Stripe.Invoice | null;
-        const paymentIntent = latestInvoice?.payment_intent as Stripe.PaymentIntent | null;
-
-        if (paymentIntent?.client_secret) {
-          const currentItem = existingStripeSubscription.items.data[0];
-          const desiredPrice = priceIds[tier as keyof typeof priceIds];
-
-          if (currentItem && currentItem.price?.id !== desiredPrice) {
-            try {
-              await stripe.subscriptions.update(existingStripeSubscription.id, {
-                items: [
-                  {
-                    id: currentItem.id,
-                    price: desiredPrice,
-                  },
-                ],
-                metadata: {
-                  ...existingStripeSubscription.metadata,
-                  tier,
-                },
-              });
-            } catch (updateError) {
-              console.error("[Stripe] Failed to retarget incomplete subscription price:", updateError);
-            }
-          }
-
-          return res.json({
-            subscriptionId: existingStripeSubscription.id,
-            clientSecret: paymentIntent.client_secret,
-            tier,
-            resumed: true,
-          });
-        }
-
+        // User has an actually active subscription
         return res.status(400).json({
-          error: "Existing subscription requires attention from support before retrying checkout.",
+          error: "User already has an active subscription",
         });
+      }
+
+      // Check for incomplete subscriptions - cancel them to allow retry
+      const incompleteSubscriptions = subscriptionsList.data.filter((sub) => {
+        if (sub.metadata?.userId !== userId) {
+          return false;
+        }
+        return sub.status === "incomplete" || sub.status === "incomplete_expired";
+      });
+
+      // Cancel any incomplete subscriptions to allow fresh start
+      if (incompleteSubscriptions.length > 0) {
+        console.log(`[Stripe] Found ${incompleteSubscriptions.length} incomplete subscription(s), canceling them...`);
+        for (const incompleteSub of incompleteSubscriptions) {
+          try {
+            await stripe.subscriptions.cancel(incompleteSub.id);
+            console.log(`[Stripe] Canceled incomplete subscription ${incompleteSub.id}`);
+          } catch (cancelError) {
+            console.error(`[Stripe] Failed to cancel incomplete subscription ${incompleteSub.id}:`, cancelError);
+            // Continue anyway - we'll create a new one
+          }
+        }
       }
 
       let subscription = await stripe.subscriptions.create({
