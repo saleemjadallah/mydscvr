@@ -1,16 +1,5 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import sharp from "sharp";
 import { uploadImagesToR2 } from "./r2-storage.js";
-import dotenv from 'dotenv';
-
-// Load environment variables
-dotenv.config();
-
-if (!process.env.GEMINI_API_KEY) {
-  throw new Error("GEMINI_API_KEY must be set");
-}
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 // Enhancement presets for food photography
 const ENHANCEMENT_PRESETS = {
@@ -132,74 +121,20 @@ export async function enhanceImage(
 /**
  * Analyze food in image using Gemini Vision API
  * This can provide insights about the food for better enhancement
+ * NOTE: Temporarily simplified - returns default values
  */
 export async function analyzeFoodImage(buffer: Buffer): Promise<{
   description: string;
   suggestions: string[];
   quality: 'excellent' | 'good' | 'needs_improvement';
 }> {
-  try {
-    const model = genAI.getGenerativeModel({
-      model: "models/gemini-2.0-flash-exp",
-    });
-
-    const base64Image = buffer.toString('base64');
-
-    const prompt = `Analyze this food image and provide:
-1. A brief description of the dish
-2. Photography quality assessment (excellent/good/needs_improvement)
-3. 3 specific suggestions for photo enhancement
-
-Format as JSON with fields: description, quality, suggestions (array)`;
-
-    const result = await model.generateContent({
-      contents: [{
-        role: "user",
-        parts: [
-          { text: prompt },
-          {
-            inlineData: {
-              mimeType: "image/jpeg",
-              data: base64Image,
-            },
-          },
-        ],
-      }],
-    });
-
-    const response = await result.response;
-    const text = response.text();
-
-    // Parse the JSON response
-    try {
-      const cleanJson = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-      const analysis = JSON.parse(cleanJson);
-
-      return {
-        description: analysis.description || "Food dish",
-        quality: analysis.quality || 'good',
-        suggestions: analysis.suggestions || ["Enhance colors", "Improve sharpness", "Adjust lighting"],
-      };
-    } catch (parseError) {
-      console.error("Error parsing Gemini response:", parseError);
-
-      // Return default values if parsing fails
-      return {
-        description: "Food dish",
-        quality: 'good',
-        suggestions: ["Enhance colors", "Improve sharpness", "Adjust lighting"],
-      };
-    }
-  } catch (error) {
-    console.error("Error analyzing food image:", error);
-
-    // Return default analysis on error
-    return {
-      description: "Food dish",
-      quality: 'good',
-      suggestions: ["Enhance colors", "Improve sharpness", "Adjust lighting"],
-    };
-  }
+  // For now, return default analysis
+  // TODO: Implement proper Gemini Vision API integration when needed
+  return {
+    description: "Food dish",
+    quality: 'good',
+    suggestions: ["Enhance colors", "Improve sharpness", "Adjust lighting"],
+  };
 }
 
 /**
