@@ -1844,9 +1844,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Validate mime type
+      // Check for HEIF/HEIC mime types and convert them
+      const heifMimeTypes = ['image/heif', 'image/heic', 'image/heif-sequence', 'image/heic-sequence'];
+      let fileBuffer = req.file.buffer;
+      let fileName = req.file.originalname;
+
+      if (heifMimeTypes.includes(req.file.mimetype) || req.file.mimetype === 'application/octet-stream') {
+        // Try to detect if it's actually HEIF/HEIC by checking magic bytes
+        const header = fileBuffer.slice(4, 12).toString('hex');
+        const isHeif = header.includes('667479706865') || // 'ftyphe' for HEIF
+                       header.includes('6674797068656963') || // 'ftypheic' for HEIC
+                       header.includes('6674797068656978'); // 'ftypheix' for HEIC variants
+
+        if (isHeif || heifMimeTypes.includes(req.file.mimetype)) {
+          try {
+            // Convert HEIF/HEIC to JPEG using Sharp
+            const sharp = (await import('sharp')).default;
+            fileBuffer = await sharp(fileBuffer)
+              .jpeg({ quality: 95, progressive: true })
+              .toBuffer();
+            // Update filename to reflect new format
+            fileName = fileName.replace(/\.(heic|heif)$/i, '.jpg');
+            console.log(`Converted HEIF/HEIC image to JPEG: ${fileName}`);
+          } catch (conversionError) {
+            console.error("Failed to convert HEIF/HEIC:", conversionError);
+            return res.status(400).json({
+              error: "Unable to convert HEIF/HEIC format",
+              details: "Please use your phone's photo app or an image converter to export this image as JPEG before uploading."
+            });
+          }
+        }
+      }
+
+      // Validate mime type (after potential conversion)
       const supportedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-      if (!supportedMimeTypes.includes(req.file.mimetype)) {
+      if (!supportedMimeTypes.includes(req.file.mimetype) && !heifMimeTypes.includes(req.file.mimetype) && req.file.mimetype !== 'application/octet-stream') {
         return res.status(400).json({
           error: "Unsupported image format",
           details: `Supported formats: JPG, PNG, WEBP. Received: ${req.file.mimetype}`
@@ -1861,10 +1893,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid enhancement type" });
       }
 
-      // Enhance the image
+      // Enhance the image (use potentially converted buffer and filename)
       const result = await enhanceImage(
-        req.file.buffer,
-        req.file.originalname,
+        fileBuffer,
+        fileName,
         userId,
         enhancementType as 'vibrant' | 'natural' | 'dramatic'
       );
@@ -1904,22 +1936,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No image files provided" });
       }
 
-      // Check for unsupported formats
+      // Convert HEIF/HEIC files if present
+      const heifMimeTypes = ['image/heif', 'image/heic', 'image/heif-sequence', 'image/heic-sequence'];
       const supportedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-      const unsupportedFiles = req.files.filter((file: any) => {
-        const filename = file.originalname.toLowerCase();
-        return filename.endsWith('.heic') ||
-               filename.endsWith('.heif') ||
-               !supportedMimeTypes.includes(file.mimetype);
-      });
 
-      if (unsupportedFiles.length > 0) {
-        return res.status(400).json({
-          error: "Unsupported image format detected",
-          details: "One or more images are in HEIF/HEIC format. Please convert them to JPEG or PNG before uploading.",
-          unsupportedFiles: unsupportedFiles.map((f: any) => f.originalname)
-        });
-      }
+      const processedFiles = await Promise.all(req.files.map(async (file: any) => {
+        let fileBuffer = file.buffer;
+        let fileName = file.originalname;
+
+        // Check if conversion is needed
+        if (heifMimeTypes.includes(file.mimetype) || file.mimetype === 'application/octet-stream') {
+          const header = fileBuffer.slice(4, 12).toString('hex');
+          const isHeif = header.includes('667479706865') ||
+                         header.includes('6674797068656963') ||
+                         header.includes('6674797068656978');
+
+          if (isHeif || heifMimeTypes.includes(file.mimetype)) {
+            try {
+              const sharp = (await import('sharp')).default;
+              fileBuffer = await sharp(fileBuffer)
+                .jpeg({ quality: 95, progressive: true })
+                .toBuffer();
+              fileName = fileName.replace(/\.(heic|heif)$/i, '.jpg');
+              console.log(`Converted HEIF/HEIC image to JPEG: ${fileName}`);
+            } catch (conversionError) {
+              throw new Error(`Failed to convert ${fileName}: ${conversionError}`);
+            }
+          }
+        }
+
+        // Validate mime type
+        if (!supportedMimeTypes.includes(file.mimetype) &&
+            !heifMimeTypes.includes(file.mimetype) &&
+            file.mimetype !== 'application/octet-stream') {
+          throw new Error(`Unsupported format for ${fileName}: ${file.mimetype}`);
+        }
+
+        return { buffer: fileBuffer, fileName };
+      }));
 
       // Get enhancement type from request body
       const enhancementType = req.body.enhancementType || 'vibrant';
@@ -1929,15 +1983,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid enhancement type" });
       }
 
-      // Prepare images for batch processing
-      const images = req.files.map((file: any) => ({
-        buffer: file.buffer,
-        fileName: file.originalname,
-      }));
-
-      // Batch enhance images
+      // Batch enhance images (using processed files with potential conversions)
       const results = await batchEnhanceImages(
-        images,
+        processedFiles,
         userId,
         enhancementType as 'vibrant' | 'natural' | 'dramatic'
       );
