@@ -1835,28 +1835,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No image file provided" });
       }
 
-      // Check for unsupported formats
-      const filename = req.file.originalname.toLowerCase();
-      if (filename.endsWith('.heic') || filename.endsWith('.heif')) {
-        return res.status(400).json({
-          error: "HEIC/HEIF format not supported",
-          details: "Please convert your image to JPG or PNG format before uploading"
-        });
-      }
-
-      // Check for HEIF/HEIC mime types and convert them
+      // Check for HEIF/HEIC mime types and convert them immediately
       const heifMimeTypes = ['image/heif', 'image/heic', 'image/heif-sequence', 'image/heic-sequence'];
       let fileBuffer = req.file.buffer;
       let fileName = req.file.originalname;
 
-      if (heifMimeTypes.includes(req.file.mimetype) || req.file.mimetype === 'application/octet-stream') {
+      // Check file extension for HEIF/HEIC
+      const isHeifExtension = fileName.toLowerCase().endsWith('.heic') || fileName.toLowerCase().endsWith('.heif');
+
+      if (heifMimeTypes.includes(req.file.mimetype) || req.file.mimetype === 'application/octet-stream' || isHeifExtension) {
         // Try to detect if it's actually HEIF/HEIC by checking magic bytes
         const header = fileBuffer.slice(4, 12).toString('hex');
-        const isHeif = header.includes('667479706865') || // 'ftyphe' for HEIF
-                       header.includes('6674797068656963') || // 'ftypheic' for HEIC
-                       header.includes('6674797068656978'); // 'ftypheix' for HEIC variants
+        const isHeifMagicBytes = header.includes('667479706865') || // 'ftyphe' for HEIF
+                                 header.includes('6674797068656963') || // 'ftypheic' for HEIC
+                                 header.includes('6674797068656978'); // 'ftypheix' for HEIC variants
 
-        if (isHeif || heifMimeTypes.includes(req.file.mimetype)) {
+        if (isHeifMagicBytes || heifMimeTypes.includes(req.file.mimetype) || isHeifExtension) {
           try {
             // Convert HEIF/HEIC to JPEG using Sharp
             const sharp = (await import('sharp')).default;
@@ -1944,14 +1938,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let fileBuffer = file.buffer;
         let fileName = file.originalname;
 
-        // Check if conversion is needed
-        if (heifMimeTypes.includes(file.mimetype) || file.mimetype === 'application/octet-stream') {
-          const header = fileBuffer.slice(4, 12).toString('hex');
-          const isHeif = header.includes('667479706865') ||
-                         header.includes('6674797068656963') ||
-                         header.includes('6674797068656978');
+        // Check file extension for HEIF/HEIC
+        const isHeifExtension = fileName.toLowerCase().endsWith('.heic') || fileName.toLowerCase().endsWith('.heif');
 
-          if (isHeif || heifMimeTypes.includes(file.mimetype)) {
+        // Check if conversion is needed
+        if (heifMimeTypes.includes(file.mimetype) || file.mimetype === 'application/octet-stream' || isHeifExtension) {
+          const header = fileBuffer.slice(4, 12).toString('hex');
+          const isHeifMagicBytes = header.includes('667479706865') ||
+                                   header.includes('6674797068656963') ||
+                                   header.includes('6674797068656978');
+
+          if (isHeifMagicBytes || heifMimeTypes.includes(file.mimetype) || isHeifExtension) {
             try {
               const sharp = (await import('sharp')).default;
               fileBuffer = await sharp(fileBuffer)
