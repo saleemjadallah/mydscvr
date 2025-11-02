@@ -1855,10 +1855,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         enhancementType as 'vibrant' | 'natural' | 'dramatic'
       );
 
-      res.json({
-        success: true,
-        data: result,
-      });
+      // Return the result directly (frontend expects this format)
+      res.json(result);
     } catch (error) {
       console.error("Error enhancing image:", error);
       res.status(500).json({

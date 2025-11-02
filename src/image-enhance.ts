@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import sharp from "sharp";
 import { uploadImagesToR2 } from "./r2-storage.js";
 import dotenv from 'dotenv';
@@ -10,9 +10,7 @@ if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY must be set");
 }
 
-const genAI = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-});
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 // Enhancement presets for food photography
 const ENHANCEMENT_PRESETS = {
