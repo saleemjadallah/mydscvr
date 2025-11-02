@@ -23,9 +23,11 @@
     "drizzle-zod": "^0.7.0",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
+    "multer": "^2.0.2",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
     "pg": "^8.13.1",
+    "sharp": "^0.34.4",
     "stripe": "^19.1.0",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0"

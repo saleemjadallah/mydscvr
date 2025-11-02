@@ -15,6 +15,8 @@ import { generateImageBase64 } from "./openai.js";
 import { setupAuth, isAuthenticated } from "./auth.js";
 import { uploadImagesToR2, deleteImagesFromR2 } from "./r2-storage.js";
 import { z } from "zod";
+import multer from "multer";
+import { enhanceImage, analyzeFoodImage, batchEnhanceImages } from "./image-enhance.js";
 import Stripe from "stripe";
 
 // Use testing Stripe key in development/test, production key in production
@@ -1800,6 +1802,137 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error fetching public establishment settings:", error);
       res.status(500).json({
         error: "Failed to fetch establishment settings",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
+   * Image Enhancement Endpoints
+   */
+
+  // Configure multer for handling file uploads
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB limit
+      files: 5, // Maximum 5 files at once
+    },
+    fileFilter: (req, file, cb) => {
+      // Accept only image files
+      if (file.mimetype.startsWith('image/')) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only image files are allowed'));
+      }
+    },
+  });
+
+  /**
+   * POST /api/enhance-image - Enhance a single image
+   */
+  app.post("/api/enhance-image", isAuthenticated, upload.single('image'), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No image file provided" });
+      }
+
+      // Get enhancement type from request body
+      const enhancementType = req.body.enhancementType || 'vibrant';
+
+      // Validate enhancement type
+      if (!['vibrant', 'natural', 'dramatic'].includes(enhancementType)) {
+        return res.status(400).json({ error: "Invalid enhancement type" });
+      }
+
+      // Enhance the image
+      const result = await enhanceImage(
+        req.file.buffer,
+        req.file.originalname,
+        userId,
+        enhancementType as 'vibrant' | 'natural' | 'dramatic'
+      );
+
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      console.error("Error enhancing image:", error);
+      res.status(500).json({
+        error: "Failed to enhance image",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
+   * POST /api/enhance-images - Enhance multiple images
+   */
+  app.post("/api/enhance-images", isAuthenticated, upload.array('images', 5), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+
+      if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
+        return res.status(400).json({ error: "No image files provided" });
+      }
+
+      // Get enhancement type from request body
+      const enhancementType = req.body.enhancementType || 'vibrant';
+
+      // Validate enhancement type
+      if (!['vibrant', 'natural', 'dramatic'].includes(enhancementType)) {
+        return res.status(400).json({ error: "Invalid enhancement type" });
+      }
+
+      // Prepare images for batch processing
+      const images = req.files.map((file: Express.Multer.File) => ({
+        buffer: file.buffer,
+        fileName: file.originalname,
+      }));
+
+      // Batch enhance images
+      const results = await batchEnhanceImages(
+        images,
+        userId,
+        enhancementType as 'vibrant' | 'natural' | 'dramatic'
+      );
+
+      res.json({
+        success: true,
+        data: results,
+      });
+    } catch (error) {
+      console.error("Error enhancing images:", error);
+      res.status(500).json({
+        error: "Failed to enhance images",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  /**
+   * POST /api/analyze-food-image - Analyze a food image with AI
+   */
+  app.post("/api/analyze-food-image", isAuthenticated, upload.single('image'), async (req: any, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No image file provided" });
+      }
+
+      // Analyze the food image
+      const analysis = await analyzeFoodImage(req.file.buffer);
+
+      res.json({
+        success: true,
+        data: analysis,
+      });
+    } catch (error) {
+      console.error("Error analyzing food image:", error);
+      res.status(500).json({
+        error: "Failed to analyze food image",
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
