@@ -14,6 +14,8 @@ import {
   type InsertUsageRecord,
   type EstablishmentSettings,
   type InsertEstablishmentSettings,
+  type CoverStyle,
+  type FontFamily,
   otpCodes,
   type InsertOtpCode,
   type OtpCode,
@@ -396,20 +398,35 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createEstablishmentSettings(settings: InsertEstablishmentSettings): Promise<EstablishmentSettings> {
+    // Ensure proper types for enums
+    const validatedSettings = {
+      ...settings,
+      coverStyle: settings.coverStyle as CoverStyle | undefined,
+      fontFamily: settings.fontFamily as FontFamily | undefined,
+    };
+
     const [created] = await db
       .insert(establishmentSettings)
-      .values(settings)
+      .values(validatedSettings as any)
       .returning();
-    return created;
+    return created || {} as EstablishmentSettings;
   }
 
   async updateEstablishmentSettings(
     userId: string,
     updates: Partial<InsertEstablishmentSettings>
   ): Promise<EstablishmentSettings | undefined> {
+    // Ensure proper types for enums
+    const validatedUpdates = {
+      ...updates,
+      coverStyle: updates.coverStyle as CoverStyle | undefined,
+      fontFamily: updates.fontFamily as FontFamily | undefined,
+      updatedAt: new Date(),
+    };
+
     const [updated] = await db
       .update(establishmentSettings)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(validatedUpdates as any)
       .where(eq(establishmentSettings.userId, userId))
       .returning();
     return updated;

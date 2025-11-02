@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import { uploadImagesToR2 } from "./r2-storage.js";
+import { uploadBuffersToR2 } from "./r2-storage.js";
 
 // Enhancement presets for food photography
 const ENHANCEMENT_PRESETS = {
@@ -48,8 +48,23 @@ async function processImageEnhancement(
 ): Promise<Buffer> {
   const preset = ENHANCEMENT_PRESETS[enhancementType];
 
-  let pipeline = sharp(buffer)
-    .jpeg({ quality: 95, progressive: true })
+  // First, detect the actual image format
+  let image = sharp(buffer);
+  const metadata = await image.metadata();
+
+  // Check if the image is in HEIF/HEIC format or any other problematic format
+  // Sharp might misidentify or have issues with certain formats
+  // Note: Sharp doesn't have 'heif' or 'heic' in its format types, but we keep this for safety
+  if (metadata.format && (metadata.format as string) === 'heif' || (metadata.format as string) === 'heic') {
+    // Convert HEIF/HEIC to JPEG first
+    image = sharp(buffer).jpeg({ quality: 95, progressive: true });
+  } else {
+    // For other formats, create a fresh sharp instance
+    image = sharp(buffer);
+  }
+
+  let pipeline = image
+    .jpeg({ quality: 95, progressive: true }) // Convert to JPEG
     .modulate({
       brightness: preset.brightness,
       saturation: preset.saturation,
@@ -78,32 +93,55 @@ export async function enhanceImage(
   enhancementType: 'vibrant' | 'natural' | 'dramatic' = 'vibrant'
 ): Promise<EnhancementResult> {
   try {
-    // Get image metadata
-    const metadata = await sharp(fileBuffer).metadata();
+    // First, try to get metadata to detect format issues early
+    let metadata;
+    try {
+      metadata = await sharp(fileBuffer).metadata();
+    } catch (metadataError: any) {
+      // If we can't read metadata, it might be a HEIF/HEIC issue
+      if (metadataError.message?.includes('heif') ||
+          metadataError.message?.includes('bad seek') ||
+          metadataError.message?.includes('compression format')) {
+        throw new Error("HEIF/HEIC format is not supported. Please convert your image to JPEG or PNG format before uploading.");
+      }
+      throw metadataError;
+    }
 
-    // Generate unique file names
+    // Generate unique file names with .jpg extension for enhanced images
     const timestamp = Date.now();
     const originalFileName = `enhance/original/${userId}/${timestamp}_${fileName}`;
-    const enhancedFileName = `enhance/enhanced/${userId}/${timestamp}_enhanced_${fileName}`;
+    // Ensure enhanced file has .jpg extension
+    const baseFileName = fileName.replace(/\.[^/.]+$/, ""); // Remove extension
+    const enhancedFileName = `enhance/enhanced/${userId}/${timestamp}_enhanced_${baseFileName}.jpg`;
 
     // Process the enhancement
-    const enhancedBuffer = await processImageEnhancement(fileBuffer, enhancementType);
+    let enhancedBuffer: Buffer;
+    try {
+      enhancedBuffer = await processImageEnhancement(fileBuffer, enhancementType);
+    } catch (enhanceError: any) {
+      if (enhanceError.message?.includes('heif') ||
+          enhanceError.message?.includes('bad seek') ||
+          enhanceError.message?.includes('compression format')) {
+        throw new Error("Unable to process this image format. Please convert your image to JPEG or PNG format before uploading.");
+      }
+      throw enhanceError;
+    }
 
     // Upload both original and enhanced to R2 in parallel
     const [originalUrls, enhancedUrls] = await Promise.all([
-      uploadImagesToR2([{
+      uploadBuffersToR2([{
         buffer: fileBuffer,
         key: originalFileName,
       }]),
-      uploadImagesToR2([{
+      uploadBuffersToR2([{
         buffer: enhancedBuffer,
         key: enhancedFileName,
       }]),
     ]);
 
     return {
-      originalUrl: originalUrls[0],
-      enhancedUrl: enhancedUrls[0],
+      originalUrl: originalUrls[0] || '',
+      enhancedUrl: enhancedUrls[0] || '',
       metadata: {
         width: metadata.width || 0,
         height: metadata.height || 0,
@@ -112,9 +150,13 @@ export async function enhanceImage(
         enhancementType,
       },
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error enhancing image:", error);
-    throw new Error("Failed to enhance image");
+    // Re-throw if it's already a formatted error message
+    if (error.message?.includes('format')) {
+      throw error;
+    }
+    throw new Error("Failed to enhance image. Please try a different image format.");
   }
 }
 

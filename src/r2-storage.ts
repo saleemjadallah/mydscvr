@@ -92,3 +92,43 @@ export async function deleteImagesFromR2(imageUrls: string[]): Promise<void> {
   const deletePromises = imageUrls.map((url) => deleteImageFromR2(url));
   await Promise.all(deletePromises);
 }
+
+/**
+ * Upload a buffer to R2 and return the public URL
+ */
+export async function uploadBufferToR2(
+  buffer: Buffer,
+  key: string,
+  contentType: string = "image/jpeg"
+): Promise<string> {
+  try {
+    // Upload to R2
+    await r2Client.send(
+      new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+        Body: buffer,
+        ContentType: contentType,
+        CacheControl: "public, max-age=31536000", // Cache for 1 year
+      })
+    );
+
+    // Return public URL
+    return `${PUBLIC_URL}/${key}`;
+  } catch (error) {
+    console.error("Error uploading buffer to R2:", error);
+    throw new Error("Failed to upload image to storage");
+  }
+}
+
+/**
+ * Upload multiple buffers to R2
+ */
+export async function uploadBuffersToR2(
+  items: Array<{ buffer: Buffer; key: string; contentType?: string }>
+): Promise<string[]> {
+  const uploadPromises = items.map((item) =>
+    uploadBufferToR2(item.buffer, item.key, item.contentType || "image/jpeg")
+  );
+  return Promise.all(uploadPromises);
+}

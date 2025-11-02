@@ -1224,19 +1224,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.params.userId;
       const items = await storage.getAllMenuItems(userId);
 
-      type ExtendedMenuItem = MenuItem & {
-        price?: number | null;
-        dietaryInfo?: string | null;
-        displayOrder?: number | null;
-        isAvailable?: boolean | null;
-      };
-
+      // MenuItem type is already correct, no need to extend
       type PublicMenuEntry = {
         id: string;
         name: string;
         description: string | null;
-        price: number | null;
-        dietaryInfo: string | null;
+        price: string | null;  // Changed to string to match MenuItem schema
+        dietaryInfo: string[] | null;  // Changed to string[] to match MenuItem schema
         allergens: string[] | null;
         generatedImages: string[] | null;
         displayOrder: number;
@@ -1250,8 +1244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         item.generatedImages.length > 0
       );
 
-      const menuByCategory = finalizedItems.reduce<Record<string, PublicMenuEntry[]>>((acc, rawItem) => {
-        const item = rawItem as ExtendedMenuItem;
+      const menuByCategory = finalizedItems.reduce<Record<string, PublicMenuEntry[]>>((acc, item) => {
         const category = item.category || "Mains";
         if (!acc[category]) {
           acc[category] = [];
@@ -1265,7 +1258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           allergens: item.allergens ?? null,
           generatedImages: item.generatedImages ?? null,
           displayOrder: item.displayOrder ?? 0,
-          isAvailable: item.isAvailable ?? true,
+          isAvailable: item.isAvailable === 1,  // Convert integer to boolean
         });
         return acc;
       }, {});
@@ -1341,12 +1334,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           Object.entries(menuItemUpdates).filter(([_, value]) => value !== undefined)
         );
 
-        updatedItem = await storage.updateMenuItem(menuItemId, {
+        const updated = await storage.updateMenuItem(menuItemId, {
           ...updates,
           generatedImages: images,
           selectedStyle: selectedStyle,
           editCount: currentEditCount + 1,
         });
+        if (updated) {
+          updatedItem = updated;
+        }
       }
 
       // Track usage: 1 dish finalized, N images created
@@ -1839,6 +1835,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No image file provided" });
       }
 
+      // Check for unsupported formats
+      const filename = req.file.originalname.toLowerCase();
+      if (filename.endsWith('.heic') || filename.endsWith('.heif')) {
+        return res.status(400).json({
+          error: "HEIC/HEIF format not supported",
+          details: "Please convert your image to JPG or PNG format before uploading"
+        });
+      }
+
+      // Validate mime type
+      const supportedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      if (!supportedMimeTypes.includes(req.file.mimetype)) {
+        return res.status(400).json({
+          error: "Unsupported image format",
+          details: `Supported formats: JPG, PNG, WEBP. Received: ${req.file.mimetype}`
+        });
+      }
+
       // Get enhancement type from request body
       const enhancementType = req.body.enhancementType || 'vibrant';
 
@@ -1857,8 +1871,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Return the result directly (frontend expects this format)
       res.json(result);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error enhancing image:", error);
+
+      // Check if it's a format-related error
+      if (error.message?.includes('HEIF') ||
+          error.message?.includes('HEIC') ||
+          error.message?.includes('format') ||
+          error.message?.includes('bad seek') ||
+          error.message?.includes('compression')) {
+        return res.status(400).json({
+          error: "Unsupported image format",
+          details: "This image appears to be in HEIF/HEIC format. Please convert it to JPEG or PNG before uploading. You can use online converters or your phone's photo app to export as JPEG."
+        });
+      }
+
       res.status(500).json({
         error: "Failed to enhance image",
         details: error instanceof Error ? error.message : "Unknown error",
@@ -1877,6 +1904,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No image files provided" });
       }
 
+      // Check for unsupported formats
+      const supportedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      const unsupportedFiles = req.files.filter((file: any) => {
+        const filename = file.originalname.toLowerCase();
+        return filename.endsWith('.heic') ||
+               filename.endsWith('.heif') ||
+               !supportedMimeTypes.includes(file.mimetype);
+      });
+
+      if (unsupportedFiles.length > 0) {
+        return res.status(400).json({
+          error: "Unsupported image format detected",
+          details: "One or more images are in HEIF/HEIC format. Please convert them to JPEG or PNG before uploading.",
+          unsupportedFiles: unsupportedFiles.map((f: any) => f.originalname)
+        });
+      }
+
       // Get enhancement type from request body
       const enhancementType = req.body.enhancementType || 'vibrant';
 
@@ -1886,7 +1930,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Prepare images for batch processing
-      const images = req.files.map((file: Express.Multer.File) => ({
+      const images = req.files.map((file: any) => ({
         buffer: file.buffer,
         fileName: file.originalname,
       }));
@@ -1902,8 +1946,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
         data: results,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error enhancing images:", error);
+
+      // Check if it's a format-related error
+      if (error.message?.includes('HEIF') ||
+          error.message?.includes('HEIC') ||
+          error.message?.includes('format') ||
+          error.message?.includes('bad seek') ||
+          error.message?.includes('compression')) {
+        return res.status(400).json({
+          error: "Unsupported image format",
+          details: "One or more images appear to be in HEIF/HEIC format. Please convert them to JPEG or PNG before uploading."
+        });
+      }
+
       res.status(500).json({
         error: "Failed to enhance images",
         details: error instanceof Error ? error.message : "Unknown error",
