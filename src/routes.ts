@@ -1245,6 +1245,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         generatedImages: string[] | null;
         displayOrder: number;
         isAvailable: boolean;
+        category: string;
       };
 
       // Only show items that have been finalized (have images)
@@ -1256,10 +1257,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const menuByCategory = finalizedItems.reduce<Record<string, PublicMenuEntry[]>>((acc, item) => {
         // Use the actual category from the item, no fallback
-        const category = item.category;
-        if (!category) {
+        const rawCategory = typeof item.category === "string" ? item.category.trim() : "";
+        const category = rawCategory.length > 0 ? rawCategory : "Mains";
+        if (!rawCategory) {
           console.warn(`Menu item "${item.name}" (ID: ${item.id}) has no category set`);
-          return acc; // Skip items without categories
         }
         if (!acc[category]) {
           acc[category] = [];
@@ -1274,6 +1275,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           generatedImages: item.generatedImages ?? null,
           displayOrder: item.displayOrder ?? 0,
           isAvailable: item.isAvailable === 1,  // Convert integer to boolean
+          category,
         });
         return acc;
       }, {});
