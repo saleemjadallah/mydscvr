@@ -100,6 +100,7 @@ export const usageRecords = pgTable("usage_records", {
   subscriptionId: varchar("subscription_id").references(() => subscriptions.id, { onDelete: "set null" }),
   dishesGenerated: integer("dishes_generated").default(0),
   imagesGenerated: integer("images_generated").default(0),
+  enhancementsUsed: integer("enhancements_used").default(0),
   billingPeriodStart: timestamp("billing_period_start").notNull(),
   billingPeriodEnd: timestamp("billing_period_end").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -274,6 +275,7 @@ export type AllergenOption = typeof allergenOptions[number];
 export interface TierLimits {
   dishesPerMonth: number;
   imagesPerDish: number;
+  enhancementsPerMonth: number;
   priceAED: number;
   overagePricePerDish: number;
 }
@@ -282,18 +284,21 @@ export const tierLimits: Record<SubscriptionTier, TierLimits> = {
   starter: {
     dishesPerMonth: 30,
     imagesPerDish: 3,
+    enhancementsPerMonth: 50,
     priceAED: 99,
     overagePricePerDish: 5,
   },
   pro: {
     dishesPerMonth: 150,
     imagesPerDish: 3,
+    enhancementsPerMonth: 200,
     priceAED: 299,
     overagePricePerDish: 3,
   },
   enterprise: {
     dishesPerMonth: 999999, // Effectively unlimited
     imagesPerDish: 3,
+    enhancementsPerMonth: 999999, // Effectively unlimited
     priceAED: 0, // Custom pricing
     overagePricePerDish: 0,
   },

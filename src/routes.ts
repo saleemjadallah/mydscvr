@@ -206,6 +206,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             subscriptionId: localSubscription.id,
             dishesGenerated: 0,
             imagesGenerated: 0,
+            enhancementsUsed: 0,
             billingPeriodStart: currentPeriodStart,
             billingPeriodEnd: currentPeriodEnd,
           });
@@ -284,6 +285,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             subscriptionId: newSubscription.id,
             dishesGenerated: 0,
             imagesGenerated: 0,
+            enhancementsUsed: 0,
             billingPeriodStart: currentPeriodStart,
             billingPeriodEnd: currentPeriodEnd,
           });
@@ -570,6 +572,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         subscriptionId: subscription.id,
         dishesGenerated: 0,
         imagesGenerated: 0,
+        enhancementsUsed: 0,
         billingPeriodStart: now,
         billingPeriodEnd: periodEnd,
       });
@@ -972,11 +975,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Calculate limits and remaining quota
       const isTrial = !subscription;
+      const TRIAL_ENHANCEMENT_LIMIT = 5;
       const limits: TierLimits = subscription
         ? tierLimits[subscription.tier]
         : {
             dishesPerMonth: TRIAL_DISH_LIMIT,
             imagesPerDish: TRIAL_IMAGES_PER_DISH,
+            enhancementsPerMonth: TRIAL_ENHANCEMENT_LIMIT,
             priceAED: 0,
             overagePricePerDish: 0,
           };
@@ -984,7 +989,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const dishesUsed = usage?.dishesGenerated || 0;
       const imagesUsed = usage?.imagesGenerated || 0;
+      const enhancementsUsed = usage?.enhancementsUsed || 0;
       const dishesRemaining = Math.max(0, limits.dishesPerMonth - dishesUsed);
+      const enhancementsRemaining = Math.max(0, limits.enhancementsPerMonth - enhancementsUsed);
 
       res.json({
         usage: usage || null,
@@ -992,8 +999,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tier,
         dishesUsed,
         imagesUsed,
+        enhancementsUsed,
         dishesRemaining,
+        enhancementsRemaining,
         hasReachedLimit: dishesUsed >= limits.dishesPerMonth,
+        hasReachedEnhancementLimit: enhancementsUsed >= limits.enhancementsPerMonth,
         limitType: isTrial ? "trial" : "plan",
         trialLimit: isTrial ? TRIAL_DISH_LIMIT : undefined,
       });
@@ -1835,6 +1845,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No image file provided" });
       }
 
+      // Check subscription and enhancement limits
+      const subscription = await storage.getActiveSubscription(userId);
+      const usage = await storage.getCurrentUsage(userId);
+      const enhancementsUsed = usage?.enhancementsUsed || 0;
+
+      const TRIAL_ENHANCEMENT_LIMIT = 5;
+      const limits: TierLimits = subscription
+        ? tierLimits[subscription.tier]
+        : {
+            dishesPerMonth: TRIAL_DISH_LIMIT,
+            imagesPerDish: TRIAL_IMAGES_PER_DISH,
+            enhancementsPerMonth: TRIAL_ENHANCEMENT_LIMIT,
+            priceAED: 0,
+            overagePricePerDish: 0,
+          };
+
+      // Check if user has reached enhancement limit
+      if (enhancementsUsed >= limits.enhancementsPerMonth) {
+        const isEnterprise = subscription?.tier === 'enterprise';
+        if (!isEnterprise) {
+          return res.status(403).json({
+            error: "Enhancement limit reached",
+            message: subscription
+              ? `You've used all ${limits.enhancementsPerMonth} enhancements for this billing period. Upgrade for more enhancements.`
+              : "You've used all 5 free trial enhancements. Subscribe to continue enhancing images.",
+            enhancementsUsed,
+            enhancementLimit: limits.enhancementsPerMonth,
+            tier: subscription?.tier || 'trial',
+          });
+        }
+      }
+
       // Check for HEIF/HEIC mime types and convert them immediately
       const heifMimeTypes = ['image/heif', 'image/heic', 'image/heif-sequence', 'image/heic-sequence'];
       let fileBuffer = req.file.buffer;
@@ -1894,6 +1936,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId,
         enhancementType as 'vibrant' | 'natural' | 'dramatic'
       );
+
+      // Increment enhancement counter
+      if (usage) {
+        await storage.updateUsageRecord(usage.id, {
+          enhancementsUsed: enhancementsUsed + 1,
+        });
+      }
 
       // Return the result directly (frontend expects this format)
       res.json(result);
