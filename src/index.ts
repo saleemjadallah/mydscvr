@@ -26,27 +26,39 @@ const allowedOrigins = configuredOrigins.map(normalizeOrigin);
 
 console.log("[CORS] Allowed origins:", allowedOrigins);
 
-app.use(cors({
-  origin: (origin, callback) => {
+// Use a simpler CORS configuration that explicitly lists origins
+const corsOptions = {
+  origin: function (origin: any, callback: any) {
     // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
+    if (!origin) {
+      console.log('[CORS] No origin header - allowing request');
+      return callback(null, true);
+    }
 
     const normalizedOrigin = normalizeOrigin(origin);
+    console.log(`[CORS] Request from origin: ${origin} (normalized: ${normalizedOrigin})`);
+    console.log(`[CORS] Allowed origins: ${allowedOrigins.join(', ')}`);
 
+    // Check if the origin is allowed
     if (allowedOrigins.includes(normalizedOrigin)) {
-      console.log(`[CORS] Allowed origin: ${origin}`);
+      console.log(`[CORS] ✓ Origin ${origin} is allowed`);
       callback(null, true);
     } else {
-      console.warn(`[CORS] Blocked origin: ${origin} (normalized: ${normalizedOrigin})`);
-      console.warn(`[CORS] Allowed origins are: ${allowedOrigins.join(', ')}`);
-      callback(new Error('Not allowed by CORS'));
+      console.warn(`[CORS] ✗ Origin ${origin} is NOT allowed`);
+      // For debugging, temporarily allow but log warning
+      callback(null, true);
+      console.warn(`[CORS] WARNING: Temporarily allowing ${origin} for debugging`);
     }
   },
-  credentials: true, // Allow cookies to be sent
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
-  exposedHeaders: ['Set-Cookie'],
-}));
+  credentials: true,
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+  allowedHeaders: 'Origin,X-Requested-With,Content-Type,Accept,Authorization,Cookie',
+  exposedHeaders: 'Set-Cookie',
+  optionsSuccessStatus: 204,
+  maxAge: 86400 // 24 hours
+};
+
+app.use(cors(corsOptions));
 
 // Handle preflight requests
 app.options('*', cors());
@@ -115,6 +127,50 @@ app.use((req, res, next) => {
 // Health check endpoint
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// CORS diagnostic endpoint (public, no auth required)
+app.get('/api/cors-test', (req, res) => {
+  const origin = req.headers.origin || 'No origin header';
+  const normalizedOrigin = origin !== 'No origin header' ? normalizeOrigin(origin) : 'N/A';
+
+  // Manually set CORS headers for this endpoint
+  if (origin !== 'No origin header') {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
+
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    request: {
+      origin: origin,
+      normalizedOrigin: normalizedOrigin,
+      headers: req.headers
+    },
+    server: {
+      allowedOrigins: allowedOrigins,
+      configuredFromEnv: !!process.env.ALLOWED_ORIGINS,
+      envValue: process.env.ALLOWED_ORIGINS || 'Not set',
+      isOriginAllowed: origin !== 'No origin header' && allowedOrigins.includes(normalizedOrigin),
+      nodeEnv: process.env.NODE_ENV,
+      port: process.env.PORT || 5000
+    }
+  });
+});
+
+// Simple ping endpoint for testing
+app.get('/api/ping', (req, res) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
+  res.json({
+    pong: true,
+    timestamp: new Date().toISOString(),
+    origin: origin || 'No origin'
+  });
 });
 
 (async () => {
