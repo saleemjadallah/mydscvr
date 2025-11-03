@@ -1,29 +1,28 @@
 import sharp from "sharp";
 import { uploadBuffersToR2 } from "./r2-storage.js";
+import { GoogleGenAI } from "@google/genai";
+import dotenv from 'dotenv';
 
-// Enhancement presets for food photography
-const ENHANCEMENT_PRESETS = {
-  vibrant: {
-    brightness: 1.1,
-    saturation: 1.3,
-    contrast: 1.15,
-    sharpen: true,
-    vibrance: 1.2,
-  },
-  natural: {
-    brightness: 1.05,
-    saturation: 1.15,
-    contrast: 1.1,
-    sharpen: true,
-    vibrance: 1.1,
-  },
-  dramatic: {
-    brightness: 1.0,
-    saturation: 1.4,
-    contrast: 1.25,
-    sharpen: true,
-    vibrance: 1.3,
-  }
+dotenv.config();
+
+if (!process.env.GEMINI_API_KEY) {
+  throw new Error("GEMINI_API_KEY must be set");
+}
+
+const genAI = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+});
+
+// Use Gemini 2.5 Flash Image model for image enhancement
+const imageModelName = process.env.GEMINI_IMAGE_MODEL || "models/gemini-2.5-flash-image";
+
+// Enhancement style prompts for AI-powered enhancement
+const ENHANCEMENT_PROMPTS = {
+  vibrant: `Transform this food photo into a vibrant, mouth-watering professional image. Enhance colors to be rich and appetizing, boost saturation for visual pop, improve lighting to highlight textures and details, increase sharpness and clarity, enhance contrast for depth, make colors more vivid and eye-catching, optimize for social media and menu displays. Professional food photography quality with award-winning appeal.`,
+
+  natural: `Enhance this food photo with natural, authentic appeal. Improve lighting while maintaining realistic tones, subtly boost colors to be appetizing but true-to-life, enhance sharpness and details, optimize shadows and highlights for depth, maintain authentic food appearance, create warm and inviting atmosphere. High-end restaurant photography with natural elegance.`,
+
+  dramatic: `Transform this food photo into a dramatic, striking professional image. Create bold contrast and rich shadows, enhance colors to be deep and intense, optimize lighting for dramatic effect, sharpen details for impact, create mood and atmosphere, add cinematic food photography quality, make the dish visually captivating and memorable. Award-winning editorial food photography style.`
 };
 
 export interface EnhancementResult {
@@ -39,48 +38,71 @@ export interface EnhancementResult {
 }
 
 /**
- * Enhance an image using Sharp image processing
- * In production, this could be replaced with AI-based enhancement services
+ * Enhance an image using Gemini AI-powered enhancement
+ * Transforms food photos into professional, menu-ready images
  */
 async function processImageEnhancement(
   buffer: Buffer,
   enhancementType: 'vibrant' | 'natural' | 'dramatic' = 'vibrant'
 ): Promise<Buffer> {
-  const preset = ENHANCEMENT_PRESETS[enhancementType];
+  const enhancementPrompt = ENHANCEMENT_PROMPTS[enhancementType];
 
-  // First, detect the actual image format
-  let image = sharp(buffer);
-  const metadata = await image.metadata();
+  // Convert image to base64 for Gemini
+  const base64Image = buffer.toString('base64');
+  const metadata = await sharp(buffer).metadata();
+  const mimeType = metadata.format === 'png' ? 'image/png' : 'image/jpeg';
 
-  // Check if the image is in HEIF/HEIC format or any other problematic format
-  // Sharp might misidentify or have issues with certain formats
-  // Note: Sharp doesn't have 'heif' or 'heic' in its format types, but we keep this for safety
-  if (metadata.format && (metadata.format as string) === 'heif' || (metadata.format as string) === 'heic') {
-    // Convert HEIF/HEIC to JPEG first
-    image = sharp(buffer).jpeg({ quality: 95, progressive: true });
-  } else {
-    // For other formats, create a fresh sharp instance
-    image = sharp(buffer);
+  try {
+    console.log(`[Gemini Enhancement] Starting ${enhancementType} enhancement with ${imageModelName}`);
+    const startTime = process.hrtime.bigint();
+
+    // Call Gemini to enhance the image
+    const response = await genAI.models.generateContent({
+      model: imageModelName,
+      config: {
+        responseModalities: ["IMAGE"],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: base64Image,
+              },
+            },
+            {
+              text: enhancementPrompt,
+            },
+          ],
+        },
+      ],
+    });
+
+    const parts = response.candidates?.flatMap((candidate) => candidate.content?.parts ?? []) ?? [];
+
+    // Extract the enhanced image from response
+    for (const part of parts) {
+      if (part.inlineData?.data) {
+        const enhancedBase64 = part.inlineData.data;
+        const enhancedBuffer = Buffer.from(enhancedBase64, 'base64');
+
+        const elapsedMs = Number(process.hrtime.bigint() - startTime) / 1_000_000;
+        console.log(`[Gemini Enhancement] Enhanced in ${elapsedMs.toFixed(0)}ms`);
+
+        // Ensure output is in JPEG format with good quality
+        return await sharp(enhancedBuffer)
+          .jpeg({ quality: 95, progressive: true })
+          .toBuffer();
+      }
+    }
+
+    throw new Error("Gemini did not return enhanced image data");
+  } catch (error: any) {
+    console.error("[Gemini Enhancement] AI enhancement failed:", error.message);
+    throw new Error(`AI enhancement failed: ${error.message}`);
   }
-
-  let pipeline = image
-    .jpeg({ quality: 95, progressive: true }) // Convert to JPEG
-    .modulate({
-      brightness: preset.brightness,
-      saturation: preset.saturation,
-    })
-    .linear(preset.contrast, -(128 * (preset.contrast - 1))); // Contrast adjustment
-
-  if (preset.sharpen) {
-    pipeline = pipeline.sharpen();
-  }
-
-  // Auto-enhance using Sharp's built-in algorithms
-  pipeline = pipeline
-    .normalize() // Normalize the image histogram
-    .removeAlpha(); // Remove alpha channel if present
-
-  return await pipeline.toBuffer();
 }
 
 /**
