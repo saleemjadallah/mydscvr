@@ -9,7 +9,12 @@ dotenv.config();
 const app = express();
 
 // CORS configuration
-const defaultAllowedOrigins = ["http://localhost:5173", "https://mydscvr.ai"];
+const defaultAllowedOrigins = [
+  "https://mydscvr.ai",
+  "https://www.mydscvr.ai",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173"
+];
 const configuredOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim()).filter(Boolean)
   : defaultAllowedOrigins;
