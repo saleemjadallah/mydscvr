@@ -1255,7 +1255,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       const menuByCategory = finalizedItems.reduce<Record<string, PublicMenuEntry[]>>((acc, item) => {
-        const category = item.category || "Mains";
+        // Use the actual category from the item, no fallback
+        const category = item.category;
+        if (!category) {
+          console.warn(`Menu item "${item.name}" (ID: ${item.id}) has no category set`);
+          return acc; // Skip items without categories
+        }
         if (!acc[category]) {
           acc[category] = [];
         }
@@ -2082,6 +2087,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error analyzing food image:", error);
       res.status(500).json({
         error: "Failed to analyze food image",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  // ============================================
+  // MAINTENANCE ENDPOINTS
+  // ============================================
+
+  /**
+   * POST /api/maintenance/fix-menu-categories - Fix menu items with null categories
+   */
+  app.post("/api/maintenance/fix-menu-categories", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+
+      // Get all menu items for the user
+      const items = await storage.getAllMenuItems(userId);
+
+      let fixedCount = 0;
+      const fixedItems = [];
+
+      for (const item of items) {
+        if (!item.category) {
+          // Default to 'Mains' for items without categories
+          const updated = await storage.updateMenuItem(item.id, {
+            ...item,
+            category: 'Mains',
+          });
+
+          if (updated) {
+            fixedCount++;
+            fixedItems.push({
+              id: item.id,
+              name: item.name,
+              oldCategory: null,
+              newCategory: 'Mains'
+            });
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `Fixed ${fixedCount} menu items with missing categories`,
+        fixedItems,
+      });
+    } catch (error) {
+      console.error("Error fixing menu categories:", error);
+      res.status(500).json({
+        error: "Failed to fix menu categories",
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
