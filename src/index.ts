@@ -34,14 +34,37 @@ app.use(cors({
     const normalizedOrigin = normalizeOrigin(origin);
 
     if (allowedOrigins.includes(normalizedOrigin)) {
+      console.log(`[CORS] Allowed origin: ${origin}`);
       callback(null, true);
     } else {
-      console.warn(`[CORS] Blocked origin: ${origin}`);
+      console.warn(`[CORS] Blocked origin: ${origin} (normalized: ${normalizedOrigin})`);
+      console.warn(`[CORS] Allowed origins are: ${allowedOrigins.join(', ')}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true, // Allow cookies to be sent
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+  exposedHeaders: ['Set-Cookie'],
 }));
+
+// Handle preflight requests
+app.options('*', cors());
+
+// Fallback CORS headers for all responses
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (allowedOrigins.includes(normalizedOrigin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cookie');
+    }
+  }
+  next();
+});
 
 declare module 'http' {
   interface IncomingMessage {
