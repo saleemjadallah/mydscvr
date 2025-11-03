@@ -54,9 +54,8 @@ export async function sendWelcomeEmail({
   name?: string | null;
 }) {
   const displayName = name?.trim() || "there";
-  const logoUrl = process.env.FRONTEND_URL
-    ? `${process.env.FRONTEND_URL}/logo-transparent.png`
-    : "https://mydscvr.ai/logo-transparent.png";
+  // Use R2-hosted logo for faster loading and reliability
+  const logoUrl = "https://images.mydscvr.ai/branding/logo-transparent.png";
 
   const subject = "Welcome to MyDscvr Food!";
   const htmlBody = `
@@ -156,9 +155,8 @@ export async function sendOtpEmail({
   code: string;
 }) {
   const displayName = name?.trim() || "there";
-  const logoUrl = process.env.FRONTEND_URL
-    ? `${process.env.FRONTEND_URL}/logo-transparent.png`
-    : "https://mydscvr.ai/logo-transparent.png";
+  // Use R2-hosted logo for faster loading and reliability
+  const logoUrl = "https://images.mydscvr.ai/branding/logo-transparent.png";
   const expiryMinutes = process.env.OTP_CODE_EXPIRY_MINUTES || 10;
 
   const subject = "Your MyDscvr Food Login Code";
