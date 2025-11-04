@@ -20,7 +20,7 @@ function ensureMailConfig() {
   assert(process.env.RESEND_FROM_EMAIL, "RESEND_FROM_EMAIL must be set");
 }
 
-async function sendEmail(options: EmailOptions) {
+export async function sendEmail(options: EmailOptions) {
   ensureMailConfig();
 
   const fromEmail = process.env.RESEND_FROM_EMAIL!;

@@ -15,6 +15,12 @@ import { generateImageBase64 } from "./openai.js";
 import { setupAuth, isAuthenticated } from "./auth.js";
 import { uploadImagesToR2, deleteImagesFromR2 } from "./r2-storage.js";
 import { z } from "zod";
+import {
+  sendSubscriptionConfirmationEmail,
+  sendSubscriptionCancelledEmail,
+  sendPaymentFailedEmail,
+  sendSubscriptionUpdatedEmail
+} from "./subscriptionEmails.js";
 import multer from "multer";
 import { enhanceImage, analyzeFoodImage, batchEnhanceImages } from "./image-enhance.js";
 import Stripe from "stripe";
@@ -212,6 +218,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
+        // Send subscription confirmation email
+        if (invoice.billing_reason === "subscription_create") {
+          try {
+            const user = await storage.getUser(userId);
+            if (user && user.email) {
+              await sendSubscriptionConfirmationEmail({
+                email: user.email,
+                name: user.firstName,
+                tier,
+                billingPeriodEnd: currentPeriodEnd,
+              });
+              console.log(`[Webhook] Sent subscription confirmation email to ${user.email}`);
+            }
+          } catch (emailError) {
+            console.error("[Webhook] Failed to send subscription confirmation email:", emailError);
+            // Don't throw - we don't want email failures to break the webhook
+          }
+        }
+
         console.log("[Webhook] Subscription synchronized:", stripeSubscriptionId);
       } catch (error) {
         console.error("[Webhook] Error syncing subscription:", error);
@@ -291,10 +316,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
+        // Send subscription confirmation email for new subscriptions
+        if (mappedStatus === 'active' || mappedStatus === 'trialing') {
+          try {
+            const user = await storage.getUser(userId);
+            if (user && user.email) {
+              await sendSubscriptionConfirmationEmail({
+                email: user.email,
+                name: user.firstName,
+                tier,
+                billingPeriodEnd: currentPeriodEnd,
+              });
+              console.log(`[Webhook] Sent subscription confirmation email to ${user.email} (via subscription.updated)`);
+            }
+          } catch (emailError) {
+            console.error("[Webhook] Failed to send subscription confirmation email:", emailError);
+          }
+        }
+
         console.log("[Webhook] Subscription created via subscription.updated:", stripeSubscriptionId);
       } else {
+        // Get the new tier from metadata (might have changed)
+        const newTier = subscription.metadata?.tier as SubscriptionTier | undefined;
+
         // Update existing subscription
-        await storage.updateSubscription(storedSubscription.id, {
+        const updateData: any = {
           status: mappedStatus,
           cancelAtPeriodEnd: subscription.cancel_at_period_end ? 1 : 0,
           currentPeriodStart: subscription.current_period_start
@@ -303,11 +349,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
           currentPeriodEnd: subscription.current_period_end
             ? new Date(subscription.current_period_end * 1000)
             : storedSubscription.currentPeriodEnd,
-        });
+        };
+
+        // Update tier if it's provided and different
+        if (newTier && newTier !== storedSubscription.tier) {
+          updateData.tier = newTier;
+        }
+
+        await storage.updateSubscription(storedSubscription.id, updateData);
+
+        // Send email based on status change
+        if (mappedStatus === 'cancelled' && event.type === 'customer.subscription.deleted') {
+          try {
+            const user = await storage.getUser(storedSubscription.userId);
+            if (user && user.email) {
+              await sendSubscriptionCancelledEmail({
+                email: user.email,
+                name: user.firstName,
+                tier: storedSubscription.tier,
+                cancelledAt: new Date(),
+                endsAt: storedSubscription.currentPeriodEnd,
+              });
+              console.log(`[Webhook] Sent subscription cancelled email to ${user.email}`);
+            }
+          } catch (emailError) {
+            console.error("[Webhook] Failed to send subscription cancelled email:", emailError);
+          }
+        }
+
+        // Check for tier changes (upgrades/downgrades)
+        if (event.type === 'customer.subscription.updated' && newTier && storedSubscription.tier !== newTier) {
+          const oldTier = storedSubscription.tier;
+          if (oldTier && newTier) {
+            try {
+              const user = await storage.getUser(storedSubscription.userId);
+              if (user && user.email) {
+                await sendSubscriptionUpdatedEmail({
+                  email: user.email,
+                  name: user.firstName,
+                  oldTier,
+                  newTier: newTier,
+                  effectiveDate: new Date(),
+                });
+                console.log(`[Webhook] Sent subscription updated email to ${user.email} (${oldTier} -> ${newTier})`);
+              }
+            } catch (emailError) {
+              console.error("[Webhook] Failed to send subscription updated email:", emailError);
+            }
+          }
+        }
 
         console.log("[Webhook] Subscription updated:", stripeSubscriptionId);
       }
 
+    } else if (event.type === "invoice.payment_failed") {
+      // Handle payment failure
+      const invoice = event.data.object as Stripe.Invoice;
+      const stripeSubscriptionId =
+        typeof invoice.subscription === "string"
+          ? invoice.subscription
+          : invoice.subscription?.id;
+
+      if (stripeSubscriptionId) {
+        const storedSubscription = await storage.getSubscriptionByStripeId(stripeSubscriptionId);
+        if (storedSubscription) {
+          try {
+            const user = await storage.getUser(storedSubscription.userId);
+            if (user && user.email) {
+              // Calculate next retry date (usually 3-5 days later)
+              const retryDate = new Date();
+              retryDate.setDate(retryDate.getDate() + 3);
+
+              await sendPaymentFailedEmail({
+                email: user.email,
+                name: user.firstName,
+                tier: storedSubscription.tier,
+                retryDate,
+              });
+              console.log(`[Webhook] Sent payment failed email to ${user.email}`);
+            }
+          } catch (emailError) {
+            console.error("[Webhook] Failed to send payment failed email:", emailError);
+          }
+        }
+      }
     }
 
     res.json({ received: true });
