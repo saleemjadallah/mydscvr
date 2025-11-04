@@ -28,6 +28,17 @@ try {
       const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8')) as ServiceAccount;
       options.credential = cert(serviceAccount);
       console.log('[Firebase] Initialized with service account');
+    } else if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+      try {
+        const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON ?? '';
+        const jsonString = raw.trim().startsWith('{')
+          ? raw
+          : Buffer.from(raw, 'base64').toString('utf8');
+        options.credential = cert(JSON.parse(jsonString) as ServiceAccount);
+        console.log('[Firebase] Initialized with service account from environment');
+      } catch (envError) {
+        console.error('[Firebase] Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:', envError);
+      }
     } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
       try {
         options.credential = applicationDefault();
