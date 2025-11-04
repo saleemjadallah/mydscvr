@@ -9,6 +9,7 @@ import bcrypt from "bcrypt";
 import { sendWelcomeEmail } from "./mail.js";
 import { requestLoginOtp, verifyLoginOtp, requestRegistrationOtp, verifyRegistrationOtp } from "./otp.js";
 import { z } from "zod";
+import { verifyFirebaseToken, getFirebaseUser } from "./firebase-admin.js";
 
 const SALT_ROUNDS = 10;
 
@@ -383,6 +384,88 @@ export async function setupAuth(app: Express) {
       }
       res.json({ message: "Logged out successfully" });
     });
+  });
+
+  // Google Sign-In route
+  const googleAuthSchema = z.object({
+    idToken: z.string().min(1, "ID token is required"),
+  });
+
+  app.post("/api/auth/google", async (req, res, next) => {
+    try {
+      const { idToken } = googleAuthSchema.parse(req.body);
+
+      // Verify the Firebase ID token
+      const decodedToken = await verifyFirebaseToken(idToken);
+      const firebaseUser = await getFirebaseUser(decodedToken.uid);
+
+      if (!firebaseUser.email) {
+        return res.status(400).json({ message: "Email not provided by Google account" });
+      }
+
+      // Check if user exists in our database
+      let user = await storage.getUserByEmail(firebaseUser.email);
+
+      if (!user) {
+        // Extract first and last name from display name
+        const nameParts = (firebaseUser.displayName || "").split(" ");
+        const firstName = nameParts[0] || "";
+        const lastName = nameParts.slice(1).join(" ") || "";
+
+        // Create new user with Google provider info
+        user = await storage.createUser({
+          email: firebaseUser.email,
+          firstName,
+          lastName,
+          profileImageUrl: firebaseUser.photoURL || undefined,
+          authProvider: "google",
+          firebaseUid: firebaseUser.uid,
+          passwordHash: null, // No password for Google users
+        });
+
+        // Send welcome email for new users
+        if (user.email) {
+          try {
+            await sendWelcomeEmail(user.email, user.firstName || "");
+          } catch (emailError) {
+            console.error("Failed to send welcome email:", emailError);
+          }
+        }
+      } else if (firebaseUser.photoURL && !user.profileImageUrl) {
+        // Update profile image if user doesn't have one
+        await storage.updateUser(user.id, {
+          profileImageUrl: firebaseUser.photoURL,
+        });
+        user.profileImageUrl = firebaseUser.photoURL;
+      }
+
+      // Log the user in
+      req.login(user, (err) => {
+        if (err) {
+          console.error("Google Sign-In session error:", err);
+          return res.status(500).json({ message: "Login failed" });
+        }
+
+        // Explicitly save the session
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("[Auth] Google Sign-In session save failed:", saveErr);
+            return res.status(500).json({ message: "Session save failed" });
+          }
+
+          console.log(`[Auth] User ${user.id} logged in via Google successfully`);
+          res.json(user);
+        });
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.issues[0]?.message ?? "Invalid request" });
+      }
+      console.error("Google Sign-In error:", error);
+      res.status(500).json({
+        message: error instanceof Error ? error.message : "Google Sign-In failed"
+      });
+    }
   });
 
   // Get current user route
