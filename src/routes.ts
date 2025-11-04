@@ -7,13 +7,19 @@ import {
   tierLimits,
   menuItemStyleOptions,
   type MenuItem,
+  type MenuCategory,
   type TierLimits,
   type SubscriptionTier,
   type EstablishmentSettings,
 } from "../shared/schema.js";
 import { generateImageBase64 } from "./openai.js";
 import { setupAuth, isAuthenticated } from "./auth.js";
-import { uploadImagesToR2, deleteImagesFromR2 } from "./r2-storage.js";
+import {
+  uploadImagesToR2,
+  deleteImagesFromR2,
+  listObjectsByPrefix,
+  getPublicUrlForKey,
+} from "./r2-storage.js";
 import { z } from "zod";
 import {
   sendSubscriptionConfirmationEmail,
@@ -1942,6 +1948,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: "Failed to fetch establishment settings",
         details: error instanceof Error ? error.message : "Unknown error",
       });
+    }
+  });
+
+  /**
+   * GET /api/user/images - Retrieve saved menu and enhanced images for the authenticated user
+   */
+  app.get("/api/user/images", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+
+      const [items, enhancedObjects] = await Promise.all([
+        storage.getAllMenuItems(userId),
+        listObjectsByPrefix(`enhance/enhanced/${userId}/`),
+      ]);
+
+      const menuImages = items
+        .filter(
+          (item) =>
+            Array.isArray(item.generatedImages) && item.generatedImages.length > 0
+        )
+        .flatMap((item) => {
+          const rawCategory =
+            typeof item.category === "string" && item.category.length > 0
+              ? item.category
+              : "Mains";
+          const category = rawCategory as MenuCategory;
+          const createdAt =
+            item.createdAt instanceof Date
+              ? item.createdAt.toISOString()
+              : item.createdAt
+              ? new Date(item.createdAt).toISOString()
+              : null;
+
+          return (item.generatedImages || []).map((url, index) => ({
+            type: "menu" as const,
+            menuItemId: item.id,
+            menuItemName: item.name,
+            category,
+            url,
+            imageIndex: index,
+            createdAt,
+            displayOrder: item.displayOrder ?? 0,
+          }));
+        });
+
+      const enhancedImages = enhancedObjects.map((object) => ({
+        type: "enhanced" as const,
+        key: object.key,
+        url: getPublicUrlForKey(object.key),
+        size: object.size ?? 0,
+        lastModified: object.lastModified
+          ? object.lastModified.toISOString()
+          : null,
+      }));
+
+      res.json({
+        menuImages,
+        enhancedImages,
+      });
+    } catch (error) {
+      console.error("Error fetching user images:", error);
+      res.status(500).json({ error: "Failed to fetch user images" });
     }
   });
 

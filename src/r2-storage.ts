@@ -1,4 +1,9 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command,
+} from "@aws-sdk/client-s3";
 import crypto from "crypto";
 
 // Initialize R2 client
@@ -13,6 +18,12 @@ const r2Client = new S3Client({
 
 const BUCKET_NAME = process.env.R2_BUCKET_NAME!;
 const PUBLIC_URL = process.env.R2_PUBLIC_URL!;
+
+export interface R2ObjectInfo {
+  key: string;
+  lastModified?: Date;
+  size?: number;
+}
 
 /**
  * Upload a base64 image to R2 and return the public URL
@@ -131,4 +142,37 @@ export async function uploadBuffersToR2(
     uploadBufferToR2(item.buffer, item.key, item.contentType || "image/jpeg")
   );
   return Promise.all(uploadPromises);
+}
+
+export async function listObjectsByPrefix(prefix: string): Promise<R2ObjectInfo[]> {
+  const objects: R2ObjectInfo[] = [];
+  let continuationToken: string | undefined;
+
+  do {
+    const response = await r2Client.send(
+      new ListObjectsV2Command({
+        Bucket: BUCKET_NAME,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      })
+    );
+
+    response.Contents?.forEach((object) => {
+      if (object.Key) {
+        objects.push({
+          key: object.Key,
+          lastModified: object.LastModified,
+          size: object.Size,
+        });
+      }
+    });
+
+    continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+  } while (continuationToken);
+
+  return objects;
+}
+
+export function getPublicUrlForKey(key: string): string {
+  return `${PUBLIC_URL}/${key}`;
 }
