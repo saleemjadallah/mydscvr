@@ -8,7 +8,9 @@ const firebaseAdminConfig = {
 };
 
 // Initialize the admin SDK if not already initialized
-if (!admin.apps.length) {
+// Use a try-catch to handle cases where admin.apps might not be defined
+try {
+  if (!admin.apps || admin.apps.length === 0) {
   let credential: admin.credential.Credential;
 
   // Check if service account file exists
@@ -30,19 +32,42 @@ if (!admin.apps.length) {
     console.log('[Firebase] Initialized with default credentials (limited functionality)');
   }
 
+    admin.initializeApp({
+      credential,
+      projectId: firebaseAdminConfig.projectId,
+    });
+  }
+} catch (error) {
+  console.log('[Firebase] Initialization check error, attempting to initialize:', error);
+  // Fallback initialization if apps check fails
   admin.initializeApp({
-    credential,
+    credential: admin.credential.applicationDefault(),
     projectId: firebaseAdminConfig.projectId,
   });
 }
 
-export const auth = admin.auth();
-export const firestore = admin.firestore();
+// Export auth and firestore with error handling
+let auth: admin.auth.Auth | null = null;
+let firestore: admin.firestore.Firestore | null = null;
+
+try {
+  auth = admin.auth();
+  firestore = admin.firestore();
+} catch (error) {
+  console.error('[Firebase] Failed to initialize services:', error);
+  console.log('[Firebase] Google Sign-In will be disabled');
+}
+
+export { auth, firestore };
 
 /**
  * Verify a Firebase ID token and extract user information
  */
 export async function verifyFirebaseToken(idToken: string) {
+  if (!auth) {
+    throw new Error('Firebase Auth is not initialized. Google Sign-In is disabled.');
+  }
+
   try {
     const decodedToken = await auth.verifyIdToken(idToken);
     return decodedToken;
@@ -56,6 +81,10 @@ export async function verifyFirebaseToken(idToken: string) {
  * Get or create user from Firebase token
  */
 export async function getFirebaseUser(uid: string) {
+  if (!auth) {
+    throw new Error('Firebase Auth is not initialized. Google Sign-In is disabled.');
+  }
+
   try {
     const firebaseUser = await auth.getUser(uid);
     return {

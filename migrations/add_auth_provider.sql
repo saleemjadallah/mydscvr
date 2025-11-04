@@ -2,9 +2,9 @@
 ALTER TABLE users
 ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(50) DEFAULT 'email';
 
--- Add Firebase UID column for Google Sign-In users
+-- Add Firebase UID column for Google Sign-In users (nullable, not unique initially)
 ALTER TABLE users
-ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR(128) UNIQUE;
+ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR(128);
 
 -- Update existing users to have 'email' as their provider
 UPDATE users

@@ -28,7 +28,7 @@ export const users = pgTable("users", {
   stripeCustomerId: varchar("stripe_customer_id"),
   stripeSubscriptionId: varchar("stripe_subscription_id"),
   authProvider: varchar("auth_provider", { length: 50 }).default("email"),
-  firebaseUid: varchar("firebase_uid", { length: 128 }).unique(),
+  firebaseUid: varchar("firebase_uid", { length: 128 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
