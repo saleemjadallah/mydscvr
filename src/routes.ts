@@ -73,11 +73,11 @@ const priceIds = {
     BHD: "price_1SQ5aJFQkVTWobH2g0qnPayr",
   },
   pro: {
-    AED: process.env.STRIPE_PRO_PRICE_ID ?? "",
-    USD: "",
-    SAR: "",
-    QAR: "",
-    BHD: "",
+    AED: process.env.STRIPE_PRO_PRICE_ID ?? "price_1SOZZbFQkVTWobH2qUsm5QLt",
+    USD: "price_1SQ5f0FQkVTWobH2x5JIgkba",
+    SAR: "price_1SQ5fCFQkVTWobH2n5B5opZS",
+    QAR: "price_1SQ5fXFQkVTWobH2nXVERMGN",
+    BHD: "price_1SQ5ftFQkVTWobH2hlKsknuo",
   },
   enterprise: {
     AED: process.env.STRIPE_ENTERPRISE_PRICE_ID ?? "",
