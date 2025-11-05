@@ -63,19 +63,39 @@ const VARIATION_VIEWS = [
   "Close-up detail shot",
 ] as const;
 
+// Multi-currency price IDs for each tier
 const priceIds = {
-  starter: process.env.STRIPE_STARTER_PRICE_ID ?? "",
-  pro: process.env.STRIPE_PRO_PRICE_ID ?? "",
-  enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID ?? "",
+  starter: {
+    AED: process.env.STRIPE_STARTER_PRICE_ID ?? "price_1SOZZGFQkVTWobH2vnYl66x2",
+    USD: "price_1SQ5ZtFQkVTWobH23jfXAeus",
+    SAR: "price_1SQ5ZTFQkVTWobH2UuFK9D2P",
+    QAR: "price_1SQ5a6FQkVTWobH2q4v2Rn1G",
+    BHD: "price_1SQ5aJFQkVTWobH2g0qnPayr",
+  },
+  pro: {
+    AED: process.env.STRIPE_PRO_PRICE_ID ?? "",
+    USD: "",
+    SAR: "",
+    QAR: "",
+    BHD: "",
+  },
+  enterprise: {
+    AED: process.env.STRIPE_ENTERPRISE_PRICE_ID ?? "",
+    USD: "",
+    SAR: "",
+    QAR: "",
+    BHD: "",
+  },
 };
 
-const missingPrices = Object.entries(priceIds)
-  .filter(([tier, value]) => !value && tier !== "enterprise")
-  .map(([tier]) => tier);
+// Validate that we have at least AED prices for starter and pro
+const missingPrices = (['starter', 'pro'] as const)
+  .filter(tier => !priceIds[tier].AED)
+  .map(tier => tier);
 
 if (missingPrices.length > 0) {
   console.warn(
-    `[Stripe] Missing price IDs for tiers: ${missingPrices.join(", ")}. Set STRIPE_STARTER_PRICE_ID and STRIPE_PRO_PRICE_ID environment variables to enable checkout.`
+    `[Stripe] Missing AED price IDs for tiers: ${missingPrices.join(", ")}. Set STRIPE_STARTER_PRICE_ID and STRIPE_PRO_PRICE_ID environment variables to enable checkout.`
   );
 }
 
@@ -531,8 +551,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const subscriptionPriceId = activeSubscription.items?.data?.[0]?.price?.id ?? null;
+      // Find tier from price ID by checking all currencies
       const tierFromPrice = subscriptionPriceId
-        ? (Object.entries(priceIds).find(([, id]) => id === subscriptionPriceId)?.[0] as SubscriptionTier | undefined)
+        ? (Object.entries(priceIds).find(([, currencies]) =>
+            Object.values(currencies).includes(subscriptionPriceId)
+          )?.[0] as SubscriptionTier | undefined)
         : undefined;
 
       let tier = (activeSubscription.metadata?.tier as SubscriptionTier | undefined)
@@ -728,14 +751,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
 
-      const { tier } = z
+      const { tier, currency } = z
         .object({
           tier: z.enum(["starter", "pro"]),
+          currency: z.enum(["AED", "USD", "SAR", "QAR", "BHD"]).default("AED"),
         })
         .parse(req.body);
 
-      if (!priceIds[tier]) {
-        return res.status(500).json({ error: `Pricing configuration missing for tier '${tier}'` });
+      const priceId = priceIds[tier][currency];
+      if (!priceId) {
+        return res.status(500).json({
+          error: `Pricing configuration missing for tier '${tier}' in currency '${currency}'`
+        });
       }
 
       const existingSubscription = await storage.getActiveSubscription(userId);
@@ -804,7 +831,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let subscription = await stripe.subscriptions.create({
         customer: customerId,
-        items: [{ price: priceIds[tier as keyof typeof priceIds] }],
+        items: [{ price: priceId }],
         payment_behavior: "default_incomplete",
         collection_method: "charge_automatically",
         payment_settings: {
@@ -813,6 +840,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         metadata: {
           userId,
           tier,
+          currency,
         },
         // Use confirmation_secret instead of payment_intent (Stripe API change Oct 2025)
         expand: ["latest_invoice.confirmation_secret"],
