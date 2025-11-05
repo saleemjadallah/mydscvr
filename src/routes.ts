@@ -754,7 +754,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { tier, currency } = z
         .object({
           tier: z.enum(["starter", "pro"]),
-          currency: z.enum(["AED", "USD", "SAR", "QAR", "BHD"]).default("AED"),
+          currency: z.enum(["AED", "USD", "SAR", "QAR", "BHD"]).default("USD"), // CHANGED TO USD FOR US MARKET TEST
         })
         .parse(req.body);
 
