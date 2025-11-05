@@ -23,8 +23,25 @@ export async function sendSubscriptionConfirmationEmail({
 
   // Tier-specific features
   const tierFeatures: Record<string, string[]> = {
-    starter: ["Up to 20 dishes per month", "3 images per dish", "10 image enhancements"],
-    pro: ["Up to 50 dishes per month", "5 images per dish", "25 image enhancements", "Priority support"],
+    starter: [
+      "30 dishes per month",
+      "50 AI photo enhancements",
+      "3 image variations per dish",
+      "All 4 photography styles",
+      "High-resolution downloads",
+      "Commercial usage rights"
+    ],
+    pro: [
+      "150 dishes per month",
+      "200 AI photo enhancements",
+      "3 image variations per dish",
+      "All 4 photography styles",
+      "High-resolution downloads",
+      "Commercial usage rights",
+      "Priority support",
+      "Custom brand watermarks",
+      "Bulk export"
+    ],
     enterprise: ["Unlimited dishes", "Unlimited images", "Unlimited enhancements", "Dedicated support"],
   };
 
@@ -409,8 +426,25 @@ export async function sendSubscriptionUpdatedEmail({
 
   // Tier-specific features
   const tierFeatures: Record<string, string[]> = {
-    starter: ["Up to 20 dishes per month", "3 images per dish", "10 image enhancements"],
-    pro: ["Up to 50 dishes per month", "5 images per dish", "25 image enhancements", "Priority support"],
+    starter: [
+      "30 dishes per month",
+      "50 AI photo enhancements",
+      "3 image variations per dish",
+      "All 4 photography styles",
+      "High-resolution downloads",
+      "Commercial usage rights"
+    ],
+    pro: [
+      "150 dishes per month",
+      "200 AI photo enhancements",
+      "3 image variations per dish",
+      "All 4 photography styles",
+      "High-resolution downloads",
+      "Commercial usage rights",
+      "Priority support",
+      "Custom brand watermarks",
+      "Bulk export"
+    ],
     enterprise: ["Unlimited dishes", "Unlimited images", "Unlimited enhancements", "Dedicated support"],
   };
 
