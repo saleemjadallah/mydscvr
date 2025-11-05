@@ -63,9 +63,9 @@ export async function sendSubscriptionConfirmationEmail({
             <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse; background-color: #FFFFFF; border-radius: 16px; box-shadow: 0 4px 24px rgba(45, 52, 54, 0.08);">
               <!-- Header -->
               <tr>
-                <td align="center" style="padding: 40px 40px 30px; background: linear-gradient(135deg, #FF8C42 0%, #FF6B0A 100%); border-radius: 16px 16px 0 0;">
+                <td align="center" style="padding: 40px 40px 30px; background: #FFFFFF; border-bottom: 2px solid #FFD4AD; border-radius: 16px 16px 0 0;">
                   <img src="${logoUrl}" alt="MyDscvr Food Logo" style="width: 100px; height: auto; display: block; margin-bottom: 20px;">
-                  <h1 style="margin: 0; font-size: 28px; font-weight: 700; color: #FFFFFF; letter-spacing: -0.5px;">Subscription Confirmed! 🎉</h1>
+                  <h1 style="margin: 0; font-size: 28px; font-weight: 700; color: #2D3436; letter-spacing: -0.5px;">Subscription Confirmed! 🎉</h1>
                 </td>
               </tr>
 
@@ -469,9 +469,9 @@ export async function sendSubscriptionUpdatedEmail({
             <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse; background-color: #FFFFFF; border-radius: 16px; box-shadow: 0 4px 24px rgba(45, 52, 54, 0.08);">
               <!-- Header -->
               <tr>
-                <td align="center" style="padding: 40px 40px 30px; background: linear-gradient(135deg, ${isUpgrade ? '#28A745' : '#FF8C42'} 0%, ${isUpgrade ? '#20C997' : '#FF6B0A'} 100%); border-radius: 16px 16px 0 0;">
+                <td align="center" style="padding: 40px 40px 30px; background: #FFFFFF; border-bottom: 2px solid ${isUpgrade ? '#86A873' : '#FFD4AD'}; border-radius: 16px 16px 0 0;">
                   <img src="${logoUrl}" alt="MyDscvr Food Logo" style="width: 100px; height: auto; display: block; margin-bottom: 20px;">
-                  <h1 style="margin: 0; font-size: 28px; font-weight: 700; color: #FFFFFF; letter-spacing: -0.5px;">
+                  <h1 style="margin: 0; font-size: 28px; font-weight: 700; color: #2D3436; letter-spacing: -0.5px;">
                     ${isUpgrade ? 'Plan Upgraded! 🚀' : 'Plan Updated'}
                   </h1>
                 </td>
