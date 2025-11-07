@@ -5,11 +5,6 @@ import type { HeadshotBatch } from '../db/index.js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
-interface GeneratedHeadshot {
-  url: string;
-  thumbnail: string;
-}
-
 interface PlatformSpecs {
   aspectRatio: string;
   dimensions: string;
@@ -18,7 +13,7 @@ interface PlatformSpecs {
 
 // Generate single headshot using template
 export async function generateHeadshotWithTemplate(
-  inputPhotos: string[],
+  _inputPhotos: string[],
   template: any,
   variationIndex: number,
   userId: string,
@@ -39,7 +34,7 @@ export async function generateHeadshotWithTemplate(
   try {
     // Generate image using Gemini
     // Note: This is a placeholder - actual implementation depends on Gemini's image generation API
-    const result = await model.generateContent([
+    await model.generateContent([
       variationPrompt,
       // ...inputPhotos.map(url => ({
       //   inlineData: { mimeType: 'image/jpeg', data: url }
@@ -100,7 +95,11 @@ export async function processImageForPlatform(
 // Generate entire batch of headshots
 export async function generateBatch(
   batch: HeadshotBatch
-): Promise<void> {
+): Promise<{
+  generatedHeadshots: any[];
+  headshotsByTemplate: { [key: string]: number };
+  totalCount: number;
+}> {
   console.log(`Starting generation for batch ${batch.id}`);
 
   const uploadedPhotos = batch.uploadedPhotos || [];
@@ -161,7 +160,7 @@ export async function generateBatch(
     generatedHeadshots: allGeneratedHeadshots,
     headshotsByTemplate,
     totalCount: allGeneratedHeadshots.length,
-  } as any;
+  };
 }
 
 // Helper to get headshot count by plan

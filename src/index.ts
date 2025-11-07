@@ -38,7 +38,7 @@ app.use(express.urlencoded({ extended: true }));
 await setupAuth(app);
 
 // Health check route
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     message: 'HeadShotHub API is running',
@@ -52,27 +52,27 @@ app.get('/api/user/profile', requireAuth, (req, res) => {
 });
 
 // Batch routes (TODO - implement batch management)
-app.get('/api/batches', requireAuth, async (req, res) => {
+app.get('/api/batches', requireAuth, async (_req, res) => {
   res.json({ message: 'Batch routes - TODO' });
 });
 
-app.post('/api/batches', requireAuth, async (req, res) => {
+app.post('/api/batches', requireAuth, async (_req, res) => {
   res.json({ message: 'Create batch - TODO' });
 });
 
 // Stripe checkout routes (TODO - implement Stripe integration)
-app.post('/api/checkout/create-session', requireAuth, async (req, res) => {
+app.post('/api/checkout/create-session', requireAuth, async (_req, res) => {
   res.json({ message: 'Create checkout session - TODO' });
 });
 
 // Stripe webhook (TODO - implement webhook handler)
 // NOTE: This must come BEFORE other routes to access raw body
-app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (_req, res) => {
   res.json({ received: true });
 });
 
 // Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('[Error]', err);
 
   if (err.name === 'UnauthorizedError') {
@@ -86,7 +86,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // 404 handler
-app.use((req, res) => {
+app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
