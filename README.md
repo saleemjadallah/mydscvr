@@ -1,234 +1,330 @@
-# MyDscvr Backend
+# HeadShotHub Backend
 
-Backend API for MyDscvr Food - Virtual Food Photographer application.
+AI-powered professional headshot generation platform backend. Generate 40-200 platform-optimized headshots from 12-20 uploaded photos within 1-3 hours.
 
-## Tech Stack
+## 🚀 Features
 
-- **Runtime**: Node.js 20+
+- **Multi-auth System**: Email/password, Google OAuth (Firebase), and OTP passwordless login
+- **Email Verification**: Resend-powered OTP system with professional templates
+- **AI Generation**: Google Gemini integration for headshot creation
+- **Style Templates**: 8 pre-configured templates (LinkedIn, Corporate, Creative, etc.)
+- **Background Jobs**: BullMQ + Redis for async processing
+- **Cloud Storage**: Cloudflare R2 (S3-compatible) for image storage
+- **Payment Processing**: Stripe one-time payments (3 pricing tiers)
+- **PostgreSQL Database**: Drizzle ORM with type safety
+- **Session Management**: PostgreSQL-backed sessions for security
+
+## 📋 Tech Stack
+
+- **Runtime**: Node.js 18+ with TypeScript
 - **Framework**: Express.js
-- **Database**: PostgreSQL (Railway)
-- **ORM**: Drizzle ORM
-- **Authentication**: Passport.js (Local Strategy)
-- **Payment Processing**: Stripe
-- **AI**: OpenAI API (Image Generation)
-- **Language**: TypeScript
+- **Database**: PostgreSQL with Drizzle ORM
+- **Authentication**: Passport.js + Firebase Admin SDK
+- **Email**: Resend API
+- **Storage**: Cloudflare R2 (S3-compatible)
+- **Queue**: BullMQ + Redis
+- **AI**: Google Gemini API
+- **Payments**: Stripe
+- **Image Processing**: Sharp
 
-## Prerequisites
+## 🏗️ Architecture
 
-- Node.js 20 or higher
+### Authentication Flow
+
+**Email/Password Registration:**
+1. User registers → Backend creates account
+2. 6-digit OTP sent via Resend
+3. User verifies email → Session created
+4. Welcome email sent
+
+**Google OAuth:**
+1. Frontend gets Firebase ID token
+2. Backend verifies with Firebase Admin SDK
+3. User created/updated in PostgreSQL
+4. Session created
+
+**OTP Passwordless Login:**
+1. User enters email
+2. OTP code sent
+3. Code verified → User logged in
+
+### Database Schema
+
+- **users**: User accounts (email, Google OAuth, Stripe customer ID)
+- **headshot_batches**: Generation jobs and results
+- **edit_requests**: User edit history
+- **otp_codes**: Email verification codes
+- **sessions**: User sessions (auto-created)
+
+### API Routes
+
+**Authentication:**
+- `POST /api/auth/register` - Register with email/password
+- `POST /api/auth/verify-registration` - Verify OTP code
+- `POST /api/auth/login` - Email/password login
+- `POST /api/auth/request-otp` - Request passwordless login code
+- `POST /api/auth/login-otp` - Login with OTP
+- `POST /api/auth/google` - Google OAuth
+- `POST /api/auth/logout` - Logout
+- `GET /api/auth/me` - Get current user
+
+**Batches (Protected):**
+- `GET /api/batches` - List user batches
+- `POST /api/batches` - Create new batch (after payment)
+- `GET /api/batches/:id` - Get batch details
+- `POST /api/batches/:id/edit` - Request edit
+
+**Stripe:**
+- `POST /api/checkout/create-session` - Create checkout
+- `POST /api/stripe/webhook` - Payment webhooks
+
+## 🛠️ Setup
+
+### Prerequisites
+
+- Node.js 18+
 - PostgreSQL database
-- OpenAI API key
-- Stripe account (test and production keys)
+- Redis server
+- Resend account
+- Firebase project (for Google OAuth)
+- Stripe account
+- Cloudflare R2 bucket
 
-## Local Development Setup
+### Quick Start
 
-1. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-2. **Set up environment variables**
-   ```bash
-   cp .env.example .env
-   ```
-
-   Then edit `.env` with your actual values:
-   - `DATABASE_URL`: Your PostgreSQL connection string
-   - `OPENAI_API_KEY`: Your OpenAI API key
-   - `STRIPE_SECRET_KEY`: Your Stripe secret key
-   - `STRIPE_WEBHOOK_SECRET`: Your Stripe webhook secret
-   - `SESSION_SECRET`: Random string (at least 32 characters)
-   - `FRONTEND_URL`: Your frontend URL (http://localhost:5173 for development)
-   - `ALLOWED_ORIGINS`: Comma-separated list of allowed CORS origins
-   - `ZEPTO_API_URL`: Zepto API endpoint (defaults to `https://api.zeptomail.com/v1.1/email`)
-   - `ZEPTO_SEND_TOKEN`: Zepto Mail API token (raw value, without `Zoho-enczapikey`)
-   - `ZEPTO_FROM_EMAIL`: Default “from” address for transactional email
-   - `ZEPTO_FROM_NAME`: Display name for outgoing email (optional)
-   - `ZEPTO_BOUNCE_EMAIL`: Bounce/return-path address (must be verified in Zepto; falls back to `ZEPTO_FROM_EMAIL` if omitted)
-   - `OTP_CODE_EXPIRY_MINUTES`: Minutes before login OTPs expire (default 10)
-
-3. **Set up database**
-   ```bash
-   # Push schema to database
-   npm run db:push
-
-   # Or generate and run migrations
-   npm run db:generate
-   npm run db:migrate
-   ```
-
-4. **Start development server**
-   ```bash
-   npm run dev
-   ```
-
-   The server will start on `http://localhost:5000`
-
-## Railway Deployment
-
-### Step 1: Create Railway Project
-
-1. Go to [Railway](https://railway.app)
-2. Create a new project
-3. Add a PostgreSQL database service
-4. Add a new service from GitHub repo: https://github.com/saleemjadallah/mydscvr
-
-### Step 2: Configure Environment Variables
-
-In Railway dashboard, add these environment variables:
-
-```
-DATABASE_URL=${{Postgres.DATABASE_URL}}
-OPENAI_API_KEY=your_openai_api_key
-STRIPE_SECRET_KEY=sk_live_your_stripe_key
-STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
-SESSION_SECRET=your_random_32_char_secret
-NODE_ENV=production
-PORT=5000
-FRONTEND_URL=https://mydscvr.ai
-ALLOWED_ORIGINS=https://mydscvr.ai,https://www.mydscvr.ai
-```
-
-### Step 3: Deploy Database Schema
-
-After first deployment, run migrations:
-
+1. **Clone and install:**
 ```bash
-# Connect to Railway project
-railway link
+git clone https://github.com/saleemjadallah/mydscvr.git
+cd mydscvr
+npm install
+```
 
-# Push database schema
+2. **Configure environment:**
+```bash
+cp .env.example .env
+# Edit .env with your credentials
+```
+
+3. **Setup database:**
+```bash
 npm run db:push
 ```
 
-Or use Railway's terminal feature to run the command directly.
+4. **Start development server:**
+```bash
+npm run dev
+```
 
-### Step 4: Configure Stripe Webhooks
+Server runs on `http://localhost:3000`
 
-1. In Stripe Dashboard, go to Developers > Webhooks
-2. Add endpoint: `https://your-railway-domain.railway.app/api/stripe/webhook`
-3. Select events to listen for:
-   - `payment_intent.succeeded`
-4. Copy webhook signing secret and update `STRIPE_WEBHOOK_SECRET` in Railway
+### Detailed Setup
 
-### Step 5: Generate Domain
+See [SETUP_GUIDE.md](./SETUP_GUIDE.md) for complete setup instructions including:
+- Firebase project creation
+- Resend domain verification
+- Stripe configuration
+- Database migration
+- Testing authentication flows
 
-Railway will automatically generate a domain like `your-app.railway.app`. You can also add a custom domain if needed.
+## 🔐 Environment Variables
 
-## API Endpoints
+### Required Variables
 
-### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - Login user
-- `POST /api/auth/logout` - Logout user
-- `GET /api/auth/me` - Get current user
+```bash
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/headshothub
 
-### Menu Items
-- `GET /api/menu-items` - Get all menu items
-- `GET /api/menu-items/:id` - Get single menu item
-- `POST /api/menu-items` - Create menu item
-- `PATCH /api/menu-items/:id` - Update menu item
-- `DELETE /api/menu-items/:id` - Delete menu item
+# Server
+SESSION_SECRET=your_random_32_char_secret
+FRONTEND_URL=http://localhost:5173
 
-### Image Generation
-- `POST /api/generate-images` - Generate food photos
+# Email (Resend)
+RESEND_API_KEY=re_your_api_key
+RESEND_FROM_EMAIL=noreply@yourdomain.com
 
-### Subscriptions
-- `GET /api/subscriptions/current` - Get active subscription
-- `POST /api/subscriptions` - Create subscription
-- `POST /api/create-subscription-intent` - Create payment intent
-- `PATCH /api/subscriptions/:id` - Update subscription
+# Firebase (Google OAuth)
+FIREBASE_PROJECT_ID=your-project-id
+# OR: FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
 
-### Usage Tracking
-- `GET /api/usage/current` - Get current usage stats
+# Cloudflare R2
+R2_ENDPOINT=https://account_id.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID=your_access_key
+R2_SECRET_ACCESS_KEY=your_secret_key
+R2_BUCKET_NAME=headshot-storage
+R2_PUBLIC_URL=https://cdn.yourdomain.com
 
-### Webhooks
-- `POST /api/stripe/webhook` - Stripe webhook handler
+# Stripe
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_BASIC_PRICE_ID=price_...
+STRIPE_PROFESSIONAL_PRICE_ID=price_...
+STRIPE_EXECUTIVE_PRICE_ID=price_...
 
-### Health Check
-- `GET /health` - Health check endpoint
+# Redis
+REDIS_URL=redis://localhost:6379
 
-## Database Schema
+# AI
+GEMINI_API_KEY=AIzaSy...
+```
 
-The database schema is defined in `shared/schema.ts` and includes:
+See `.env.example` for complete list with descriptions.
 
-- **users** - User accounts with authentication
-- **menu_items** - Restaurant menu items
-- **subscriptions** - User subscription plans
-- **usage_records** - Monthly usage tracking
-- **sessions** - Express session storage
+## 📝 Available Scripts
 
-## Scripts
+```bash
+npm run dev          # Start development server with hot reload
+npm run build        # Build for production
+npm start            # Run production build
+npm run db:push      # Push schema changes to database
+npm run db:studio    # Open Drizzle Studio (database UI)
+```
 
-- `npm run dev` - Start development server with hot reload
-- `npm run build` - Build for production
-- `npm start` - Start production server
-- `npm run check` - Type check TypeScript
-- `npm run db:push` - Push schema to database
-- `npm run db:generate` - Generate migrations
-- `npm run db:migrate` - Run migrations
-
-## Project Structure
+## 🗂️ Project Structure
 
 ```
-backend/
+.
 ├── src/
-│   ├── index.ts        # Entry point with Express setup
-│   ├── routes.ts       # API route handlers
-│   ├── auth.ts         # Authentication with Passport
-│   ├── db.ts           # Database connection
-│   ├── storage.ts      # Database operations
-│   └── openai.ts       # OpenAI client setup
-├── shared/
-│   └── schema.ts       # Database schema (shared with frontend)
-├── migrations/         # Database migrations
-├── dist/              # Compiled JavaScript
-├── package.json
-├── tsconfig.json
-├── drizzle.config.ts
-└── README.md
+│   ├── db/
+│   │   ├── index.ts           # Database connection
+│   │   └── schema.ts          # Drizzle schema definitions
+│   ├── lib/
+│   │   ├── auth.ts            # Authentication system
+│   │   ├── firebase-admin.ts  # Firebase Admin SDK
+│   │   ├── otp.ts             # OTP generation/verification
+│   │   ├── mail.ts            # Resend email templates
+│   │   ├── storage.ts         # R2 storage operations
+│   │   ├── gemini.ts          # AI generation
+│   │   ├── stripe.ts          # Payment processing
+│   │   ├── queue.ts           # BullMQ setup
+│   │   └── templates.ts       # Style templates
+│   └── index.ts               # Express app entry point
+├── .env.example               # Environment variables template
+├── drizzle.config.ts          # Drizzle ORM configuration
+├── tsconfig.json              # TypeScript configuration
+├── package.json               # Dependencies and scripts
+├── SETUP_GUIDE.md            # Detailed setup instructions
+└── MIGRATION_SUMMARY.md      # Architecture documentation
 ```
 
-## Environment Variables Reference
+## 🎨 Style Templates
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@host:5432/db` |
-| `OPENAI_API_KEY` | OpenAI API key | `sk-proj-...` |
-| `STRIPE_SECRET_KEY` | Stripe secret key | `sk_test_...` or `sk_live_...` |
-| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret | `whsec_...` |
-| `SESSION_SECRET` | Express session secret | Random 32+ char string |
-| `NODE_ENV` | Environment | `development` or `production` |
-| `PORT` | Server port | `5000` |
-| `FRONTEND_URL` | Frontend URL for CORS | `https://mydscvr.ai` |
-| `ALLOWED_ORIGINS` | Allowed CORS origins | `https://mydscvr.ai,https://www.mydscvr.ai` |
+HeadShotHub includes 8 professional templates:
 
-## Security Notes
+1. **LinkedIn** (1:1, 1024x1024) - Business formal profiles
+2. **Corporate** (4:5, 1080x1350) - Team pages, websites
+3. **Creative** (3:4, 1080x1440) - Portfolio platforms
+4. **Resume** (2:3, 800x1200) - CV applications
+5. **Social** (1:1, 1080x1080) - Instagram, Facebook, Twitter
+6. **Executive** (2:3, 1080x1620) - Leadership pages
+7. **Casual** (4:5, 1080x1350) - Approachable team photos
+8. **Speaker** (16:9, 1920x1080) - Conference promotion
 
-1. Always use HTTPS in production
-2. Keep `SESSION_SECRET` secure and random
-3. Use Stripe test keys in development
-4. Never commit `.env` file to git
-5. Rotate API keys regularly
-6. Use Railway's secret management for sensitive data
+Each template includes platform-specific dimensions, lighting, backgrounds, and AI prompts.
 
-## Troubleshooting
+## 💰 Pricing Tiers
 
-### Database Connection Issues
-- Verify `DATABASE_URL` is correct
-- Ensure database service is running
-- Check firewall/network settings
+- **Basic** ($29): 40 headshots, 2 templates, 1 hour delivery
+- **Professional** ($39): 100 headshots, 4 templates, 2 hours delivery
+- **Executive** ($59): 200 headshots, 8 templates, 3 hours delivery
 
-### Stripe Webhook Failures
-- Verify webhook endpoint is accessible
-- Check `STRIPE_WEBHOOK_SECRET` matches Stripe dashboard
-- Review webhook logs in Stripe dashboard
+## 🧪 Testing
 
-### CORS Errors
-- Verify `ALLOWED_ORIGINS` includes your frontend URL
-- Check `FRONTEND_URL` is correct
-- Ensure credentials are enabled
+### Test Authentication
 
-## Support
+```bash
+# Health check
+curl http://localhost:3000/api/health
 
-For issues, please open an issue on GitHub: https://github.com/saleemjadallah/mydscvr/issues
+# Register user
+curl -X POST http://localhost:3000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"password123","firstName":"Test","lastName":"User"}'
+
+# Check email for OTP code, then verify
+curl -X POST http://localhost:3000/api/auth/verify-registration \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","code":"123456"}'
+```
+
+### Test Stripe Payments
+
+Use Stripe test card: `4242 4242 4242 4242`
+
+## 🚢 Deployment
+
+### Railway (Recommended)
+
+1. Create new project
+2. Add PostgreSQL and Redis services
+3. Connect GitHub repository
+4. Set environment variables from `.env.example`
+5. Deploy
+
+**Important production variables:**
+```bash
+NODE_ENV=production
+SESSION_SECRET=<strong_random_secret>
+FIREBASE_SERVICE_ACCOUNT_JSON=<base64_encoded_json>
+```
+
+### Environment-specific Settings
+
+**Development:**
+- Uses `localhost` for CORS
+- Session cookies: `secure=false`, `sameSite=lax`
+- Email: Can use `onboarding@resend.dev`
+
+**Production:**
+- Multi-origin CORS via `ALLOWED_ORIGINS`
+- Session cookies: `secure=true`, `sameSite=none`
+- Email: Requires verified domain
+
+## 📚 Documentation
+
+- [SETUP_GUIDE.md](./SETUP_GUIDE.md) - Complete setup walkthrough
+- [MIGRATION_SUMMARY.md](./MIGRATION_SUMMARY.md) - Architecture details
+- [.env.example](./.env.example) - All environment variables
+
+## 🔒 Security Features
+
+- **Password Hashing**: bcryptjs with salt rounds
+- **Session Security**: HTTP-only, secure cookies in production
+- **CORS Protection**: Configurable allowed origins
+- **Input Validation**: Zod schemas on all endpoints
+- **Firebase Token Verification**: Secure OAuth flow
+- **Webhook Verification**: Stripe signature validation
+- **Rate Limiting**: TODO (recommended for production)
+
+## 🐛 Common Issues
+
+### Firebase "auth/unauthorized-domain"
+Add your domain to Firebase Console → Authentication → Settings → Authorized domains
+
+### Resend "Invalid API key"
+Verify API key and domain verification in Resend dashboard
+
+### Session not persisting
+Check `SESSION_SECRET` is set and PostgreSQL connection is working
+
+### CORS errors
+Add frontend URL to `ALLOWED_ORIGINS` environment variable
+
+## 📞 Support
+
+For issues:
+1. Check [SETUP_GUIDE.md](./SETUP_GUIDE.md)
+2. Verify environment variables
+3. Check server logs
+4. Review [MIGRATION_SUMMARY.md](./MIGRATION_SUMMARY.md) for architecture
+
+## 📄 License
+
+MIT License - See LICENSE file for details
+
+## 👤 Author
+
+Saleem Jadallah
+
+---
+
+**Note**: This is the backend API. The frontend is in a separate repository.
