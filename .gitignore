@@ -1,55 +1,51 @@
 # Dependencies
 node_modules/
-.pnp
-.pnp.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
 
 # Environment variables
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.development
+.env.production
+.env.test
 
-# Build outputs
+# Build output
 dist/
 build/
-.next/
-out/
+*.js.map
 
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-.pnpm-debug.log*
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Testing
-coverage/
-.nyc_output
-
-# Misc
+# TypeScript
 *.tsbuildinfo
-.cache
-.parcel-cache
-.turbo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Firebase
+firebase-service-account.json
+.firebase/
+firebase-debug.log
 
 # Database
 *.db
-*.db-journal
-drizzle/
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+.pnpm-debug.log*
+
+# Testing
+coverage/
+.nyc_output/
 
 # Temporary files
 tmp/
@@ -58,3 +54,4 @@ temp/
 
 # OS
 Thumbs.db
+.DS_Store
