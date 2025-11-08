@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(npm run build:*)",
+      "WebSearch",
+      "Bash(npm run test:gemini:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

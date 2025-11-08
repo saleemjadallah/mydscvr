@@ -1,0 +1,174 @@
+{
+  "projectInfo": {
+    "name": "HeadShotHub",
+    "description": "AI-powered SaaS for generating professional headshots optimized for different platforms",
+    "type": "Full-stack Web Application",
+    "architecture": "Monorepo (React Frontend + Express Backend)"
+  },
+  "directories": {
+    "frontend": {
+      "path": "frontend/",
+      "type": "React SPA",
+      "buildCommand": "npm run build",
+      "devCommand": "npm run dev",
+      "outputDir": "dist/",
+      "port": 5173
+    },
+    "backend": {
+      "path": "backend/",
+      "type": "Express API",
+      "buildCommand": "npm run build",
+      "devCommand": "npm run dev",
+      "outputDir": "dist/",
+      "port": 3000
+    }
+  },
+  "commands": {
+    "start_all": {
+      "description": "Start both frontend and backend",
+      "steps": [
+        "Open two terminal windows",
+        "Terminal 1: cd backend && npm run dev",
+        "Terminal 2: cd frontend && npm run dev"
+      ]
+    },
+    "db_push": {
+      "command": "cd backend && npm run db:push",
+      "description": "Push database schema changes to PostgreSQL"
+    },
+    "db_studio": {
+      "command": "cd backend && npm run db:studio",
+      "description": "Open Drizzle Studio for database inspection"
+    },
+    "build_frontend": {
+      "command": "cd frontend && npm run build",
+      "description": "Build frontend for production"
+    },
+    "build_backend": {
+      "command": "cd backend && npm run build",
+      "description": "Build backend for production"
+    }
+  },
+  "keyFiles": {
+    "configuration": [
+      "backend/.env",
+      "frontend/.env",
+      "backend/drizzle.config.ts",
+      "backend/tsconfig.json",
+      "frontend/tsconfig.json",
+      "frontend/vite.config.ts",
+      "frontend/tailwind.config.ts"
+    ],
+    "schema": [
+      "backend/src/db/schema.ts"
+    ],
+    "sharedConfig": [
+      "backend/src/lib/plans.ts",
+      "frontend/src/lib/plans.ts",
+      "backend/src/lib/templates.ts",
+      "frontend/src/lib/templates.ts"
+    ],
+    "apiIntegration": [
+      "frontend/src/lib/api.ts",
+      "backend/src/index.ts"
+    ]
+  },
+  "architecture": {
+    "frontend": {
+      "framework": "React 19",
+      "language": "TypeScript",
+      "bundler": "Vite",
+      "styling": "Tailwind CSS v4",
+      "routing": "React Router",
+      "uiLibrary": "Radix UI",
+      "stateManagement": "React hooks (no Redux/Zustand)"
+    },
+    "backend": {
+      "runtime": "Node.js",
+      "framework": "Express",
+      "language": "TypeScript",
+      "database": "PostgreSQL",
+      "orm": "Drizzle ORM",
+      "authentication": "Passport.js (local strategy)",
+      "jobQueue": "BullMQ + Redis",
+      "imageProcessing": "Sharp"
+    },
+    "integrations": {
+      "ai": "Google Gemini API",
+      "storage": "Cloudflare R2 (S3-compatible)",
+      "payments": "Stripe (one-time payments only)",
+      "email": "Nodemailer (SendGrid/SMTP)"
+    }
+  },
+  "developmentWorkflow": {
+    "makeChangesToFrontend": [
+      "Edit files in frontend/src/",
+      "Hot reload is automatic via Vite",
+      "Check browser console for errors"
+    ],
+    "makeChangesToBackend": [
+      "Edit files in backend/src/",
+      "tsx watch auto-restarts server",
+      "Check terminal for errors"
+    ],
+    "updateDatabaseSchema": [
+      "Edit backend/src/db/schema.ts",
+      "Run: cd backend && npm run db:push",
+      "Verify with: npm run db:studio"
+    ],
+    "addNewApiRoute": [
+      "Add handler in backend/src/index.ts (or backend/src/routes/)",
+      "Update frontend/src/lib/api.ts with new API function",
+      "Use requireAuth middleware if route needs authentication"
+    ],
+    "addNewStyleTemplate": [
+      "Add to backend/src/lib/templates.ts with geminiPrompt",
+      "Add to frontend/src/lib/templates.ts with UI metadata",
+      "Create preview image in frontend/public/assets/templates/",
+      "Update template selection UI"
+    ]
+  },
+  "importantNotes": {
+    "sharedConfiguration": "Plans and templates are duplicated in both frontend and backend. Keep them in sync when making changes.",
+    "authentication": "Uses Passport.js with session-based auth (HTTP-only cookies). Check req.isAuthenticated() for protected routes.",
+    "payments": "All Stripe payments are one-time purchases, NOT subscriptions. No recurring billing logic needed.",
+    "imageStorage": "R2 bucket structure: /uploads/{userId}/{batchId}/, /generated/{userId}/{batchId}/, /thumbnails/{userId}/{batchId}/",
+    "jobProcessing": "Background jobs use BullMQ. Enqueue after Stripe payment success, process asynchronously.",
+    "environmentVariables": "Backend requires DATABASE_URL, GEMINI_API_KEY, SESSION_SECRET, REDIS_URL, STRIPE_SECRET_KEY, R2_* credentials. Frontend requires VITE_API_URL, VITE_STRIPE_PUBLISHABLE_KEY."
+  },
+  "testingGuidelines": {
+    "stripeTestCard": "4242 4242 4242 4242",
+    "localUrls": {
+      "frontend": "http://localhost:5173",
+      "backend": "http://localhost:3000",
+      "healthCheck": "http://localhost:3000/api/health"
+    }
+  },
+  "codeStyle": {
+    "typescript": "Strict mode enabled",
+    "formatting": "Follow existing patterns in codebase",
+    "apiResponses": "Always use { success: true, data: {...} } or { success: false, error: 'message' }",
+    "authentication": "Protected routes should use requireAuth middleware"
+  },
+  "deployment": {
+    "frontend": {
+      "platform": "Cloudflare Pages",
+      "buildCommand": "npm run build",
+      "outputDir": "dist/"
+    },
+    "backend": {
+      "platform": "Railway",
+      "buildCommand": "npm run build",
+      "startCommand": "npm start",
+      "addons": ["PostgreSQL", "Redis"]
+    },
+    "storage": {
+      "platform": "Cloudflare R2"
+    }
+  },
+  "commonPatterns": {
+    "protectedRoute": "app.get('/api/route', requireAuth, (req, res) => { /* handler */ })",
+    "fileUpload": "Use multer middleware for multipart/form-data, then upload to R2 via @aws-sdk/client-s3",
+    "jobEnqueue": "await headshotQueue.add('generate', { batchId, userId, ... })"
+  }
+}
