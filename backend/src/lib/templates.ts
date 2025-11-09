@@ -168,4 +168,28 @@ export const STYLE_TEMPLATES: { [key: string]: any } = {
       - Color: Vibrant professional colors, stage-appropriate
       - Quality: High-resolution (300dpi equivalent) for print and digital use`,
   },
+  visa: {
+    id: 'visa',
+    name: 'Visa & Passport',
+    background: 'Plain white or light grey backdrop (no patterns, no shadows)',
+    outfit: 'Formal or smart casual attire',
+    platformSpecs: {
+      aspectRatio: '35:45',
+      dimensions: '1050x1350',
+      optimizedFor: 'US, Schengen, UK, Canada visa applications',
+    },
+    geminiPrompt: `Create a compliant biometric visa/passport photo:
+      - Background: Plain white or light grey, absolutely no patterns or shadows
+      - Attire: Formal or smart casual, solid colors preferred
+      - Lighting: Even, front-facing illumination with no shadows on face
+      - Expression: Neutral expression, mouth closed, no smile, eyes open and looking directly at camera
+      - Framing: Full frontal face view, head centered, face occupies 70-80% of frame
+      - Head Position: Straight-on, no tilt, chin to crown between 31-36mm of image height
+      - Crop: 35x45mm biometric standard (413x531 pixels at 300dpi)
+      - Style: Official government ID photo, strictly compliant with visa regulations
+      - Eyes: Both eyes clearly visible, no red-eye, no glasses glare
+      - Hair: Away from face, ears visible (if possible), no shadows from hair
+      - Quality: High-resolution biometric standard, print-ready at 300dpi
+      - CRITICAL: No smile, neutral expression only, plain background, no shadows`,
+  },
 };
