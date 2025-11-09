@@ -7,6 +7,7 @@ import cors from 'cors';
 import { setupAuth, requireAuth } from './lib/auth.js';
 import batchesRouter from './routes/batches.js';
 import { runMigrations } from './db/migrate.js';
+import { ensureUserSchema } from './db/schemaMaintenance.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,6 +16,10 @@ const PORT = process.env.PORT || 3000;
 console.log('Running database migrations...');
 await runMigrations();
 console.log('Database migrations completed.');
+
+console.log('Ensuring critical user columns exist...');
+await ensureUserSchema();
+console.log('User schema verified.');
 
 // Parse allowed origins from environment (comma-separated)
 const allowedOrigins = process.env.ALLOWED_ORIGINS
