@@ -13,6 +13,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:fix": "tsx scripts/fix-production-schema.ts",
+    "db:rebuild": "tsx scripts/rebuild-database.ts",
     "test:gemini": "tsx scripts/test-gemini-pro.ts"
   },
   "dependencies": {
