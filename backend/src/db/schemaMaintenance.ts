@@ -1,4 +1,4 @@
-import { pool } from './index.js';
+import postgres from 'postgres';
 
 interface ColumnDefinition {
   name: string;
@@ -15,29 +15,29 @@ const userColumnDefinitions: ColumnDefinition[] = [
   { name: 'updated_at', definition: 'timestamp DEFAULT now() NOT NULL' },
 ];
 
-async function ensureColumn(column: ColumnDefinition) {
-  const sql = `
-    ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS ${column.name} ${column.definition};
-  `;
-
-  try {
-    await pool.query(sql);
-    console.log(`[DB] Ensured column '${column.name}' exists on users table`);
-  } catch (error) {
-    console.error(`[DB] Failed ensuring column '${column.name}':`, error);
-    throw error;
-  }
-}
-
 /**
  * Ensures critical user table columns exist even if the initial migration
  * wasn't applied on the target database.
  */
 export async function ensureUserSchema() {
-  for (const column of userColumnDefinitions) {
-    await ensureColumn(column);
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    console.warn('[DB] Skipping schema verification - DATABASE_URL not set');
+    return;
   }
 
-  console.log('[DB] User table schema verified');
+  const sql = postgres(connectionString);
+
+  try {
+    for (const column of userColumnDefinitions) {
+      await sql.unsafe(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS ${column.name} ${column.definition};`
+      );
+      console.log(`[DB] Ensured column '${column.name}' exists on users table`);
+    }
+
+    console.log('[DB] User table schema verified');
+  } finally {
+    await sql.end();
+  }
 }
