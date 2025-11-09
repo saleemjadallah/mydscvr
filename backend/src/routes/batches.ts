@@ -4,8 +4,14 @@ import sharp from 'sharp';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
+import archiver from 'archiver';
 import { requireAuth } from '../lib/auth.js';
-import { uploadBuffer, deleteBatchFiles } from '../lib/storage.js';
+import {
+  uploadBuffer,
+  deleteBatchFiles,
+  downloadFileByUrl,
+  optimizeUploadedImage,
+} from '../lib/storage.js';
 import { db, headshotBatches } from '../db/index.js';
 import { getPlan, HEADSHOT_PLANS } from '../lib/plans.js';
 import { STYLE_TEMPLATES } from '../lib/templates.js';
@@ -66,14 +72,8 @@ router.post(
           return res.status(400).json({ success: false, error: 'Only image uploads are allowed' });
         }
 
-        const processedBuffer = await sharp(file.buffer)
-          .rotate()
-          .resize(2048, 2048, {
-            fit: 'inside',
-            withoutEnlargement: true,
-          })
-          .jpeg({ quality: 95 })
-          .toBuffer();
+        // Optimize image using the centralized function
+        const processedBuffer = await optimizeUploadedImage(file.buffer);
 
         const key = `uploads/${userId}/${uploadPrefix}/${index}.jpg`;
         const url = await uploadBuffer(processedBuffer, key, 'image/jpeg');
@@ -241,6 +241,103 @@ router.delete('/:batchId', requireAuth, async (req: AuthedRequest, res: Response
   } catch (error) {
     console.error('[Batches] Delete failed:', error);
     return res.status(500).json({ success: false, error: 'Failed to delete batch' });
+  }
+});
+
+// Download single headshot by URL
+router.get('/:batchId/download/:headshotId', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const batchId = Number(req.params.batchId);
+    const headshotId = req.params.headshotId;
+
+    const [batch] = await db
+      .select()
+      .from(headshotBatches)
+      .where(and(eq(headshotBatches.id, batchId), eq(headshotBatches.userId, userId)));
+
+    if (!batch) {
+      return res.status(404).json({ success: false, error: 'Batch not found' });
+    }
+
+    // Find the headshot in the batch
+    const headshot = batch.generatedHeadshots?.find((h: any) => h.id === headshotId);
+
+    if (!headshot) {
+      return res.status(404).json({ success: false, error: 'Headshot not found' });
+    }
+
+    // Download from R2
+    const imageBuffer = await downloadFileByUrl(headshot.url);
+
+    // Set headers for download
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Disposition', `attachment; filename="headshot-${headshotId}.jpg"`);
+    res.setHeader('Content-Length', imageBuffer.length);
+
+    return res.send(imageBuffer);
+  } catch (error) {
+    console.error('[Batches] Download failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to download headshot' });
+  }
+});
+
+// Download all headshots as ZIP
+router.get('/:batchId/download-all', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const batchId = Number(req.params.batchId);
+
+    const [batch] = await db
+      .select()
+      .from(headshotBatches)
+      .where(and(eq(headshotBatches.id, batchId), eq(headshotBatches.userId, userId)));
+
+    if (!batch) {
+      return res.status(404).json({ success: false, error: 'Batch not found' });
+    }
+
+    if (!batch.generatedHeadshots || batch.generatedHeadshots.length === 0) {
+      return res.status(404).json({ success: false, error: 'No headshots available for download' });
+    }
+
+    // Create ZIP archive
+    const archive = archiver('zip', {
+      zlib: { level: 6 }, // Compression level (0-9)
+    });
+
+    // Set response headers
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="headshots-batch-${batchId}.zip"`);
+
+    // Pipe archive to response
+    archive.pipe(res);
+
+    // Download and add each headshot to the archive
+    let downloadCount = 0;
+    for (const headshot of batch.generatedHeadshots as any[]) {
+      try {
+        const imageBuffer = await downloadFileByUrl(headshot.url);
+        const filename = `${headshot.template || 'headshot'}-${headshot.id}.jpg`;
+        archive.append(imageBuffer, { name: filename });
+        downloadCount++;
+      } catch (error) {
+        console.error(`[Batches] Failed to download ${headshot.url}:`, error);
+        // Continue with other files
+      }
+    }
+
+    if (downloadCount === 0) {
+      return res.status(500).json({ success: false, error: 'Failed to download any headshots' });
+    }
+
+    // Finalize the archive
+    await archive.finalize();
+
+    console.log(`[Batches] Downloaded ${downloadCount} headshots as ZIP for batch ${batchId}`);
+  } catch (error) {
+    console.error('[Batches] Download all failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to create download archive' });
   }
 });
 

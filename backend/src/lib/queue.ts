@@ -4,8 +4,10 @@ import { db, headshotBatches } from '../db/index.js';
 import { eq } from 'drizzle-orm';
 import { generateBatch } from './gemini.js';
 
-// Redis connection
-const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+// Redis connection with BullMQ-compatible settings
+const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+  maxRetriesPerRequest: null,
+});
 
 // Create queue
 export const headshotQueue = new Queue('headshot-generation', {

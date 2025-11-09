@@ -1,6 +1,9 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Only initialize Resend if API key is provided
+const resend = process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== 're_placeholder_get_real_key_from_resend_com'
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
 
 interface EmailRecipient {
   address: string;
@@ -18,8 +21,9 @@ interface EmailOptions {
  * Core email sending function using Resend
  */
 export async function sendEmail(options: EmailOptions) {
-  if (!process.env.RESEND_API_KEY) {
+  if (!resend || !process.env.RESEND_API_KEY) {
     console.warn('[Email] RESEND_API_KEY not configured. Email not sent.');
+    console.warn(`[Email] Would have sent to: ${options.to[0].address} - Subject: ${options.subject}`);
     return;
   }
 
