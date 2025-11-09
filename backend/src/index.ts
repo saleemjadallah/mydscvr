@@ -6,9 +6,15 @@ import express from 'express';
 import cors from 'cors';
 import { setupAuth, requireAuth } from './lib/auth.js';
 import batchesRouter from './routes/batches.js';
+import { runMigrations } from './db/migrate.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Run database migrations on startup
+console.log('Running database migrations...');
+await runMigrations();
+console.log('Database migrations completed.');
 
 // Parse allowed origins from environment (comma-separated)
 const allowedOrigins = process.env.ALLOWED_ORIGINS
