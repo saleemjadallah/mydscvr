@@ -12,6 +12,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
+    "db:fix": "tsx scripts/fix-production-schema.ts",
     "test:gemini": "tsx scripts/test-gemini-pro.ts"
   },
   "dependencies": {
