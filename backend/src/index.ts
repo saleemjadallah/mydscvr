@@ -6,20 +6,15 @@ import express from 'express';
 import cors from 'cors';
 import { setupAuth, requireAuth } from './lib/auth.js';
 import batchesRouter from './routes/batches.js';
-import { runMigrations } from './db/migrate.js';
-import { ensureUserSchema } from './db/schemaMaintenance.js';
+import { ensureTables } from './db/ensureTables.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Run database migrations on startup
-console.log('Running database migrations...');
-await runMigrations();
-console.log('Database migrations completed.');
-
-console.log('Ensuring critical user columns exist...');
-await ensureUserSchema();
-console.log('User schema verified.');
+// Ensure database tables exist on startup
+console.log('Checking database tables...');
+await ensureTables();
+console.log('Database tables ready.');
 
 // Parse allowed origins from environment (comma-separated)
 const allowedOrigins = process.env.ALLOWED_ORIGINS
