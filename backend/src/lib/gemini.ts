@@ -9,6 +9,10 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 interface GeneratedHeadshot {
   url: string;
   thumbnail: string;
+  template: string;
+  background: string;
+  outfit: string;
+  platformSpecs: any;
 }
 
 interface PlatformSpecs {
@@ -30,61 +34,127 @@ async function imageUrlToBase64(url: string): Promise<string> {
   }
 }
 
-// Generate single headshot using template
+// Generate single headshot using Gemini 2.5 Flash Image
 export async function generateHeadshotWithTemplate(
   inputPhotos: string[],
   template: any,
   variationIndex: number,
   userId: string,
   batchId: number
-): Promise<{ url: string; thumbnail: string }> {
-  // Use Gemini 2.0 Flash Experimental for native image generation
+): Promise<GeneratedHeadshot> {
+  // Use Gemini 2.5 Flash Image for native image generation
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash-exp',
+    model: 'gemini-2.5-flash-image',
     generationConfig: {
-      temperature: 0.4,
-      topK: 32,
-      topP: 1,
-      maxOutputTokens: 4096,
+      temperature: 0.7,
+      topK: 40,
+      topP: 0.95,
+      maxOutputTokens: 8192,
     },
     safetySettings: [
       {
         category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
       },
       {
         category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
       },
       {
         category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
       },
       {
         category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
       },
     ],
   });
 
   try {
-    // For now, since Gemini doesn't generate images directly,
-    // we'll use it to analyze the best photo and apply transformations
-
-    // Select the best photo from uploaded ones for this variation
+    // Select photo for this variation (cycle through uploaded photos)
     const selectedPhotoIndex = variationIndex % inputPhotos.length;
     const selectedPhotoUrl = inputPhotos[selectedPhotoIndex];
 
-    // Fetch and process the image
-    const response = await fetch(selectedPhotoUrl);
-    const arrayBuffer = await response.arrayBuffer();
-    const imageBuffer = Buffer.from(arrayBuffer);
+    // Fetch the reference photo as base64
+    const base64Image = await imageUrlToBase64(selectedPhotoUrl);
 
     // Parse dimensions from template
     const [width, height] = template.platformSpecs.dimensions.split('x').map(Number);
 
-    // Process image according to template specifications
-    const processedImage = await sharp(imageBuffer)
+    // Create variation-specific expressions
+    const variations = [
+      'direct eye contact with confident smile',
+      'slight angle with professional expression',
+      'three-quarter view with subtle smile',
+      'straight-on with neutral professional look',
+      'slight head tilt with approachable expression',
+    ];
+    const expressionVariation = variations[variationIndex % variations.length];
+
+    // Construct detailed prompt for AI headshot generation
+    const prompt = `Generate a professional headshot photograph based on the reference photo provided.
+
+CRITICAL REQUIREMENTS:
+- Maintain the person's facial features, identity, skin tone, and appearance from the reference photo
+- Create a completely new professional photograph, not just an edit
+- Output dimensions: ${width}x${height} pixels (${template.platformSpecs.aspectRatio} aspect ratio)
+- Optimized for: ${template.platformSpecs.optimizedFor}
+
+STYLE SPECIFICATIONS:
+- Template: ${template.name}
+- Background: ${template.background}
+- Outfit/Attire: ${template.outfit}
+- Expression: ${expressionVariation}
+- Lighting: Professional studio lighting with soft shadows
+- Image quality: High resolution, sharp focus, professional color grading
+
+DETAILED INSTRUCTIONS:
+${template.geminiPrompt}
+
+OUTPUT REQUIREMENTS:
+- Generate a photorealistic professional headshot
+- Ensure excellent composition following photography best practices
+- Sharp focus on eyes and face
+- Natural skin tones with professional retouching
+- Appropriate depth of field for headshots
+- No watermarks, text, or artifacts
+
+Generate the professional headshot image now.`;
+
+    console.log(`Generating headshot for ${template.name} (variation ${variationIndex})...`);
+
+    // Create the content parts with the reference image
+    const imagePart = {
+      inlineData: {
+        mimeType: 'image/jpeg',
+        data: base64Image,
+      },
+    };
+
+    // Call Gemini 2.5 Flash Image to generate the headshot
+    const result = await model.generateContent([prompt, imagePart]);
+    const response = result.response;
+
+    // Extract generated image from response parts
+    let generatedImageBuffer: Buffer | null = null;
+
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        // Image data is in base64
+        const imageData = part.inlineData.data;
+        generatedImageBuffer = Buffer.from(imageData, 'base64');
+        console.log(`✓ AI generated image for ${template.name}`);
+        break;
+      }
+    }
+
+    if (!generatedImageBuffer) {
+      throw new Error('No image generated in response');
+    }
+
+    // Ensure correct dimensions and optimize
+    const finalImage = await sharp(generatedImageBuffer)
       .resize(width, height, {
         fit: 'cover',
         position: 'center',
@@ -95,30 +165,19 @@ export async function generateHeadshotWithTemplate(
       })
       .toBuffer();
 
-    // Apply style-specific adjustments based on template
-    let finalImage = processedImage;
+    // Generate thumbnail
+    const thumbnailBuffer = await sharp(finalImage)
+      .resize(400, 400, {
+        fit: 'cover',
+        position: 'center',
+      })
+      .jpeg({
+        quality: 85,
+      })
+      .toBuffer();
 
-    // Apply template-specific adjustments
-    if (template.id === 'corporate' || template.id === 'executive') {
-      // Apply professional look adjustments
-      finalImage = await sharp(processedImage)
-        .modulate({
-          brightness: 1.05,
-          saturation: 0.95,
-        })
-        .toBuffer();
-    } else if (template.id === 'creative' || template.id === 'social') {
-      // Apply creative adjustments
-      finalImage = await sharp(processedImage)
-        .modulate({
-          brightness: 1.1,
-          saturation: 1.1,
-        })
-        .toBuffer();
-    }
-
-    // Upload to R2
-    const { url, thumbnail } = await uploadGeneratedHeadshot(
+    // Upload full-size image to R2
+    const { url } = await uploadGeneratedHeadshot(
       userId,
       batchId,
       finalImage,
@@ -128,11 +187,161 @@ export async function generateHeadshotWithTemplate(
       }
     );
 
-    return { url, thumbnail };
+    // Upload thumbnail to R2
+    const { url: thumbnailUrl } = await uploadGeneratedHeadshot(
+      userId,
+      batchId,
+      thumbnailBuffer,
+      {
+        template: template.id,
+        index: variationIndex,
+        isThumbnail: true,
+      }
+    );
+
+    return {
+      url,
+      thumbnail: thumbnailUrl,
+      template: template.id,
+      background: template.background,
+      outfit: template.outfit,
+      platformSpecs: template.platformSpecs,
+    };
   } catch (error) {
-    console.error('Error generating headshot:', error);
-    throw new Error('Failed to generate headshot');
+    console.error('Error generating headshot with Gemini 2.5:', error);
+
+    // Fallback: Enhanced image processing if AI generation fails
+    console.log('Falling back to enhanced image processing...');
+    return await generateFallbackHeadshot(
+      inputPhotos[variationIndex % inputPhotos.length],
+      template,
+      variationIndex,
+      userId,
+      batchId
+    );
   }
+}
+
+// Fallback: Enhanced image processing when AI generation fails
+async function generateFallbackHeadshot(
+  photoUrl: string,
+  template: any,
+  variationIndex: number,
+  userId: string,
+  batchId: number
+): Promise<GeneratedHeadshot> {
+  console.log('Using fallback image processing for', template.name);
+
+  // Fetch the original photo
+  const response = await fetch(photoUrl);
+  const arrayBuffer = await response.arrayBuffer();
+  const imageBuffer = Buffer.from(arrayBuffer);
+
+  // Parse dimensions
+  const [width, height] = template.platformSpecs.dimensions.split('x').map(Number);
+
+  // Apply template-specific enhancements
+  let pipeline = sharp(imageBuffer)
+    .resize(width, height, {
+      fit: 'cover',
+      position: 'center',
+      kernel: 'lanczos3',
+    });
+
+  // Style-specific adjustments
+  switch (template.id) {
+    case 'linkedin':
+    case 'corporate':
+      pipeline = pipeline
+        .modulate({
+          brightness: 1.05,
+          saturation: 0.92,
+        })
+        .sharpen({ sigma: 1.2 })
+        .normalise();
+      break;
+
+    case 'executive':
+      pipeline = pipeline
+        .modulate({
+          brightness: 1.02,
+          saturation: 0.88,
+        })
+        .sharpen({ sigma: 1.5 })
+        .normalise()
+        .gamma(1.1);
+      break;
+
+    case 'creative':
+    case 'social':
+      pipeline = pipeline
+        .modulate({
+          brightness: 1.1,
+          saturation: 1.2,
+        })
+        .sharpen({ sigma: 0.8 });
+      break;
+
+    case 'casual':
+      pipeline = pipeline
+        .modulate({
+          brightness: 1.08,
+          saturation: 1.08,
+        });
+      break;
+
+    default:
+      pipeline = pipeline.sharpen({ sigma: 1.0 });
+  }
+
+  const finalImage = await pipeline
+    .jpeg({
+      quality: 95,
+      chromaSubsampling: '4:4:4',
+    })
+    .toBuffer();
+
+  // Generate thumbnail
+  const thumbnailBuffer = await sharp(finalImage)
+    .resize(400, 400, {
+      fit: 'cover',
+      position: 'center',
+    })
+    .jpeg({
+      quality: 85,
+    })
+    .toBuffer();
+
+  // Upload to R2
+  const { url } = await uploadGeneratedHeadshot(
+    userId,
+    batchId,
+    finalImage,
+    {
+      template: template.id,
+      index: variationIndex,
+    }
+  );
+
+  const { url: thumbnailUrl } = await uploadGeneratedHeadshot(
+    userId,
+    batchId,
+    thumbnailBuffer,
+    {
+      template: template.id,
+      index: variationIndex,
+      isThumbnail: true,
+    }
+  );
+
+  return {
+    url,
+    thumbnail: thumbnailUrl,
+    template: template.id,
+    background: template.background,
+    outfit: template.outfit,
+    platformSpecs: template.platformSpecs,
+  };
 }
 
 // Process image to meet platform specifications
@@ -159,35 +368,55 @@ export async function processImageForPlatform(
   return processed;
 }
 
-// Generate entire batch of headshots
+// Generate entire batch of headshots using Gemini 2.5 Flash Image
 export async function generateBatch(
   batch: HeadshotBatch
-): Promise<void> {
-  console.log(`Starting generation for batch ${batch.id}`);
+): Promise<{
+  generatedHeadshots: GeneratedHeadshot[];
+  headshotsByTemplate: Record<string, number>;
+  totalCount: number;
+}> {
+  console.log(`🚀 Starting AI generation for batch ${batch.id}`);
+  console.log(`Plan: ${batch.plan}`);
+  console.log(`Templates: ${batch.styleTemplates?.join(', ')}`);
 
   const uploadedPhotos = batch.uploadedPhotos || [];
   const styleTemplates = batch.styleTemplates || [];
 
+  if (uploadedPhotos.length === 0) {
+    throw new Error('No uploaded photos found for batch');
+  }
+
+  if (styleTemplates.length === 0) {
+    throw new Error('No style templates selected for batch');
+  }
+
   // Get plan config
   const planHeadshots = getPlanHeadshots(batch.plan);
+  console.log(`Generating ${planHeadshots} total headshots`);
 
   // Calculate how many headshots per template
   const headshotsPerTemplate = Math.floor(planHeadshots / styleTemplates.length);
-  const headshotsByTemplate: { [key: string]: number } = {};
-  const allGeneratedHeadshots: any[] = [];
+  const headshotsByTemplate: Record<string, number> = {};
+  const allGeneratedHeadshots: GeneratedHeadshot[] = [];
 
   // Generate headshots for each template
   for (const templateId of styleTemplates) {
     const template = STYLE_TEMPLATES[templateId];
-    if (!template) continue;
+    if (!template) {
+      console.warn(`Template ${templateId} not found, skipping`);
+      continue;
+    }
 
-    console.log(`Generating ${headshotsPerTemplate} headshots for template: ${template.name}`);
+    console.log(`\n📸 Generating ${headshotsPerTemplate} headshots for template: ${template.name}`);
 
-    const generatedForTemplate: any[] = [];
+    const generatedForTemplate: GeneratedHeadshot[] = [];
 
     // Generate variations within this template
     for (let i = 0; i < headshotsPerTemplate; i++) {
       try {
+        console.log(`  → Variation ${i + 1}/${headshotsPerTemplate}...`);
+
         const headshot = await generateHeadshotWithTemplate(
           uploadedPhotos,
           template,
@@ -196,42 +425,36 @@ export async function generateBatch(
           batch.id
         );
 
-        const headshotData = {
-          url: headshot.url,
-          template: templateId,
-          background: template.background,
-          outfit: template.outfit,
-          thumbnail: headshot.thumbnail,
-          platformSpecs: template.platformSpecs,
-        };
+        generatedForTemplate.push(headshot);
+        allGeneratedHeadshots.push(headshot);
 
-        generatedForTemplate.push(headshotData);
-        allGeneratedHeadshots.push(headshotData);
+        console.log(`  ✓ Generated ${i + 1}/${headshotsPerTemplate}`);
       } catch (error) {
-        console.error(`Failed to generate headshot ${i} for template ${templateId}:`, error);
+        console.error(`  ✗ Failed to generate headshot ${i} for template ${templateId}:`, error);
+        // Continue with next variation even if one fails
       }
     }
 
     headshotsByTemplate[templateId] = generatedForTemplate.length;
+    console.log(`✓ Completed ${template.name}: ${generatedForTemplate.length} headshots`);
   }
 
-  console.log(`Completed generation for batch ${batch.id}`);
-  console.log(`Total headshots generated: ${allGeneratedHeadshots.length}`);
+  console.log(`\n🎉 Completed generation for batch ${batch.id}`);
+  console.log(`Total headshots generated: ${allGeneratedHeadshots.length}/${planHeadshots}`);
 
-  // Return results (will be saved by the queue worker)
   return {
     generatedHeadshots: allGeneratedHeadshots,
     headshotsByTemplate,
     totalCount: allGeneratedHeadshots.length,
-  } as any;
+  };
 }
 
 // Helper to get headshot count by plan
 function getPlanHeadshots(plan: string): number {
-  const plans: { [key: string]: number } = {
-    basic: 40,
-    professional: 100,
-    executive: 200,
+  const plans: Record<string, number> = {
+    basic: 10,
+    professional: 15,
+    executive: 20,
   };
-  return plans[plan] || 40;
+  return plans[plan] || 10;
 }
