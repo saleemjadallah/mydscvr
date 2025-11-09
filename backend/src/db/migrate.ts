@@ -2,8 +2,13 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const runMigrations = async () => {
   console.log('Running migrations...');
@@ -18,7 +23,20 @@ const runMigrations = async () => {
   const db = drizzle(migrationClient);
 
   try {
-    await migrate(db, { migrationsFolder: './drizzle' });
+    // Determine migrations folder based on environment
+    // In dev (src/db/migrate.ts): go up 2 levels to project root, then into drizzle
+    // In prod (dist/db/migrate.js): go up 1 level to dist, then into drizzle
+    let migrationsFolder;
+    if (__dirname.includes('/dist/')) {
+      // Production: dist/db -> dist/drizzle
+      migrationsFolder = join(__dirname, '..', 'drizzle');
+    } else {
+      // Development: src/db -> drizzle
+      migrationsFolder = join(__dirname, '..', '..', 'drizzle');
+    }
+    console.log(`Looking for migrations in: ${migrationsFolder}`);
+
+    await migrate(db, { migrationsFolder });
     console.log('Migrations completed successfully!');
   } catch (error) {
     console.error('Migration failed:', error);
