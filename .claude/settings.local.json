@@ -5,7 +5,12 @@
       "Bash(cat:*)",
       "Bash(npm run build:*)",
       "WebSearch",
-      "Bash(npm run test:gemini:*)"
+      "Bash(npm run test:gemini:*)",
+      "Bash(git fetch:*)",
+      "Bash(npm info:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm run db:generate:*)"
     ],
     "deny": [],
     "ask": []

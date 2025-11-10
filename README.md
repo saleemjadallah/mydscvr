@@ -309,6 +309,9 @@ Check `SESSION_SECRET` is set and PostgreSQL connection is working
 ### CORS errors
 Add frontend URL to `ALLOWED_ORIGINS` environment variable
 
+### Postgres column "uploads_used" does not exist
+Redeploy with the latest backend code—startup now ensures all critical `users` columns exist. If the error persists, run `npm run db:migrate` or `npm run db:fix` with your production `DATABASE_URL`.
+
 ## 📞 Support
 
 For issues:

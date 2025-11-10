@@ -1,6 +1,5 @@
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
-import sharp from 'sharp';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
@@ -19,7 +18,9 @@ import { queueGenerationJob } from '../lib/queue.js';
 
 const router = Router();
 
-type AuthedRequest = Request & { user?: { id: string } };
+interface AuthedRequest extends Request {
+  user?: any;
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
