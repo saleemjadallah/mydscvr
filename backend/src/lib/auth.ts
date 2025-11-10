@@ -39,6 +39,8 @@ export function getSession() {
   const cookieSameSite = cookieSecure ? 'none' : 'lax';
   const cookieDomain = process.env.SESSION_COOKIE_DOMAIN || undefined;
 
+  console.log(`[Session] Config - secure: ${cookieSecure}, sameSite: ${cookieSameSite}, domain: ${cookieDomain || 'not set'}`);
+
   return session({
     secret: process.env.SESSION_SECRET || 'your-secret-key-change-this',
     store: sessionStore,
@@ -285,9 +287,10 @@ export async function setupAuth(app: Express) {
         req.session.save((saveErr) => {
           if (saveErr) {
             console.error('[Auth] Session save error:', saveErr);
+            return res.status(500).json({ error: 'Session save failed' });
           }
 
-          console.log(`[Auth] User logged in: ${user.email}`);
+          console.log(`[Auth] User logged in: ${user.email}, sessionID: ${req.sessionID}`);
           res.json(user);
         });
       });
