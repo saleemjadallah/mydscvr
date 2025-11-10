@@ -20,6 +20,9 @@ export const users = pgTable('users', {
   uploads_used: integer('uploads_used').default(0).notNull(),
   batches_created: integer('batches_created').default(0).notNull(),
 
+  // Premium/Free tier
+  isFreeUser: integer('is_free_user').default(0).notNull(), // 1 = free unlimited access, 0 = normal user
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

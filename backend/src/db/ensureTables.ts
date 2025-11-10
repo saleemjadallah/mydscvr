@@ -31,6 +31,13 @@ export async function ensureTables() {
 
     console.log('[DB] All tables verified/created successfully');
 
+    // Apply free user flag migration
+    const freeUserMigrationPath = join(__dirname, '..', '..', 'drizzle', '0003_add_free_user_flag.sql');
+    const freeUserMigrationSQL = readFileSync(freeUserMigrationPath, 'utf-8');
+    await sql.unsafe(freeUserMigrationSQL);
+
+    console.log('[DB] Free user privileges updated');
+
     // Verify critical columns exist
     const result = await sql`
       SELECT column_name
