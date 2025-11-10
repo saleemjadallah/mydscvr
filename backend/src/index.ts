@@ -50,6 +50,7 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     message: 'HeadShotHub API is running',
     timestamp: new Date().toISOString(),
+    version: '1.0.1',
   });
 });
 
