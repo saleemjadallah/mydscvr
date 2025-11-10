@@ -28,10 +28,16 @@ build/
 *~
 .DS_Store
 
-# Firebase
+# Firebase and Google OAuth
 firebase-service-account.json
 .firebase/
 firebase-debug.log
+**/heashotpro-hub-*.json
+client_secret_*.json
+
+# Documentation with secrets
+GOOGLE_OAUTH_SETUP.md
+GOOGLE_AUTH_QUICK_START.md
 
 # Database
 *.db
