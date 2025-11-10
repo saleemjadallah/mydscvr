@@ -185,7 +185,6 @@ export async function generateHeadshotWithGemini2(
       {
         template: template.id,
         index: variationIndex,
-        isThumbnail: true,
       }
     );
 
@@ -345,7 +344,6 @@ async function uploadAndReturnHeadshot(
     {
       template: template.id,
       index: variationIndex,
-      isThumbnail: true,
     }
   );
 

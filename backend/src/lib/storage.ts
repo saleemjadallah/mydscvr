@@ -147,7 +147,7 @@ export async function generatePreview(image: Buffer): Promise<Buffer> {
 
 // Optimize uploaded image for processing
 export async function optimizeUploadedImage(buffer: Buffer): Promise<Buffer> {
-  const metadata = await sharp(buffer).metadata();
+  await sharp(buffer).metadata();
 
   return sharp(buffer)
     .rotate() // Auto-rotate based on EXIF

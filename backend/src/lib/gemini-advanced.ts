@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { uploadGeneratedHeadshot } from './storage.js';
 import { STYLE_TEMPLATES } from './templates.js';
 import type { HeadshotBatch } from '../db/index.js';
@@ -108,7 +108,7 @@ export async function generateEnhancedHeadshot(
   variationIndex: number,
   userId: string,
   batchId: number,
-  analysis?: ImageAnalysis
+  _analysis?: ImageAnalysis
 ): Promise<GeneratedHeadshot> {
   try {
     // Fetch the input image
@@ -169,7 +169,6 @@ export async function generateEnhancedHeadshot(
       {
         template: template.id,
         index: variationIndex,
-        isThumbnail: true,
       }
     );
 

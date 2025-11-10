@@ -279,7 +279,7 @@ export async function deleteOtpCodesForUser(userId: string, purpose?: 'login' | 
 export async function cleanupExpiredOtpCodes(): Promise<void> {
   const now = new Date();
 
-  const result = await db
+  await db
     .delete(otpCodes)
     .where(eq(otpCodes.expiresAt, now));
 

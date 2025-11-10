@@ -1,4 +1,4 @@
-import express, { Express, RequestHandler } from 'express';
+import { Express, RequestHandler } from 'express';
 import session from 'express-session';
 import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';

@@ -195,7 +195,6 @@ Generate the professional headshot image now.`;
       {
         template: template.id,
         index: variationIndex,
-        isThumbnail: true,
       }
     );
 
@@ -330,7 +329,6 @@ async function generateFallbackHeadshot(
     {
       template: template.id,
       index: variationIndex,
-      isThumbnail: true,
     }
   );
 

@@ -22,7 +22,7 @@ try {
 
     firebaseApp = admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
-      projectId: serviceAccount.project_id,
+      projectId: serviceAccount.projectId,
     });
   }
   // Method 2: Try loading from environment variable
@@ -40,7 +40,7 @@ try {
 
     firebaseApp = admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
-      projectId: serviceAccount.project_id,
+      projectId: serviceAccount.projectId,
     });
   }
   // Method 3: Use application default credentials
@@ -77,7 +77,7 @@ try {
  * @param idToken - Firebase ID token from client
  * @returns Decoded token with user info
  */
-export async function verifyFirebaseToken(idToken: string) {
+export async function verifyFirebaseToken(idToken: string): Promise<admin.auth.DecodedIdToken> {
   try {
     const decodedToken = await admin.auth().verifyIdToken(idToken);
     console.log(`[Firebase] Token verified for user: ${decodedToken.uid}`);
@@ -93,7 +93,7 @@ export async function verifyFirebaseToken(idToken: string) {
  * @param uid - Firebase user UID
  * @returns Firebase user record
  */
-export async function getFirebaseUser(uid: string) {
+export async function getFirebaseUser(uid: string): Promise<admin.auth.UserRecord> {
   try {
     const userRecord = await admin.auth().getUser(uid);
     console.log(`[Firebase] Retrieved user: ${userRecord.email}`);
@@ -109,7 +109,7 @@ export async function getFirebaseUser(uid: string) {
  * @param email - User email address
  * @returns Firebase user record or null
  */
-export async function getFirebaseUserByEmail(email: string) {
+export async function getFirebaseUserByEmail(email: string): Promise<admin.auth.UserRecord | null> {
   try {
     const userRecord = await admin.auth().getUserByEmail(email);
     return userRecord;
