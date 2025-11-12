@@ -1,7 +1,9 @@
-import admin from 'firebase-admin';
 import type { ServiceAccount } from 'firebase-admin';
 import fs from 'fs';
 import path from 'path';
+
+// Lazy load firebase-admin to prevent initialization issues
+let admin: any = null;
 
 /**
  * Initialize Firebase Admin SDK
@@ -10,74 +12,98 @@ import path from 'path';
  * 2. FIREBASE_SERVICE_ACCOUNT_JSON env var (base64 or JSON string)
  * 3. GOOGLE_APPLICATION_CREDENTIALS (application default)
  */
-let firebaseApp: admin.app.App;
+let firebaseApp: any = null;
+let firebaseInitialized = false;
 
-try {
-  // Method 1: Try loading from file
-  const serviceAccountPath = path.join(process.cwd(), 'firebase-service-account.json');
+async function initializeFirebase() {
+  if (firebaseInitialized) return firebaseApp;
 
-  if (fs.existsSync(serviceAccountPath)) {
-    console.log('[Firebase] Initializing with service account file');
-    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8')) as ServiceAccount;
+  try {
+    // Lazy load firebase-admin
+    if (!admin) {
+      try {
+        admin = await import('firebase-admin');
+      } catch (importError) {
+        console.error('[Firebase] Failed to import firebase-admin:', importError);
+        firebaseInitialized = true;
+        return null;
+      }
+    }
+    // Method 1: Try loading from file
+    const serviceAccountPath = path.join(process.cwd(), 'firebase-service-account.json');
 
-    firebaseApp = admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-      projectId: serviceAccount.projectId,
-    });
-  }
-  // Method 2: Try loading from environment variable
-  else if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.log('[Firebase] Initializing with FIREBASE_SERVICE_ACCOUNT_JSON env var');
+    if (fs.existsSync(serviceAccountPath)) {
+      console.log('[Firebase] Initializing with service account file');
+      const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8')) as ServiceAccount;
 
-    let serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+      firebaseApp = admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: serviceAccount.projectId,
+      });
+    }
+    // Method 2: Try loading from environment variable
+    else if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+      console.log('[Firebase] Initializing with FIREBASE_SERVICE_ACCOUNT_JSON env var');
 
-    // Check if it's base64 encoded
-    if (!serviceAccountJson.trim().startsWith('{')) {
-      serviceAccountJson = Buffer.from(serviceAccountJson, 'base64').toString('utf8');
+      let serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+
+      // Check if it's base64 encoded
+      if (!serviceAccountJson.trim().startsWith('{')) {
+        serviceAccountJson = Buffer.from(serviceAccountJson, 'base64').toString('utf8');
+      }
+
+      const serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccount;
+
+      firebaseApp = admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: serviceAccount.projectId,
+      });
+    }
+    // Method 3: Use application default credentials
+    else if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_PROJECT_ID) {
+      console.log('[Firebase] Initializing with application default credentials');
+
+      firebaseApp = admin.initializeApp({
+        credential: admin.credential.applicationDefault(),
+        projectId: process.env.FIREBASE_PROJECT_ID,
+      });
+    }
+    // No credentials found
+    else {
+      console.warn('[Firebase] No credentials found. Firebase features will be disabled.');
+      console.warn('[Firebase] To enable, provide one of:');
+      console.warn('[Firebase]   1. firebase-service-account.json file');
+      console.warn('[Firebase]   2. FIREBASE_SERVICE_ACCOUNT_JSON env var');
+      console.warn('[Firebase]   3. GOOGLE_APPLICATION_CREDENTIALS env var');
+
+      firebaseInitialized = true;
+      return null;
     }
 
-    const serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccount;
-
-    firebaseApp = admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-      projectId: serviceAccount.projectId,
-    });
+    console.log(`[Firebase] Successfully initialized for project: ${firebaseApp?.options.projectId}`);
+    firebaseInitialized = true;
+    return firebaseApp;
+  } catch (error) {
+    console.error('[Firebase] Initialization error:', error);
+    firebaseInitialized = true;
+    return null;
   }
-  // Method 3: Use application default credentials
-  else if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_PROJECT_ID) {
-    console.log('[Firebase] Initializing with application default credentials');
-
-    firebaseApp = admin.initializeApp({
-      credential: admin.credential.applicationDefault(),
-      projectId: process.env.FIREBASE_PROJECT_ID,
-    });
-  }
-  // No credentials found
-  else {
-    console.warn('[Firebase] No credentials found. Firebase features will be disabled.');
-    console.warn('[Firebase] To enable, provide one of:');
-    console.warn('[Firebase]   1. firebase-service-account.json file');
-    console.warn('[Firebase]   2. FIREBASE_SERVICE_ACCOUNT_JSON env var');
-    console.warn('[Firebase]   3. GOOGLE_APPLICATION_CREDENTIALS env var');
-
-    // Initialize with minimal config (will throw errors if used)
-    firebaseApp = admin.initializeApp({
-      projectId: 'headshothub',
-    });
-  }
-
-  console.log(`[Firebase] Successfully initialized for project: ${firebaseApp.options.projectId}`);
-} catch (error) {
-  console.error('[Firebase] Initialization error:', error);
-  throw error;
 }
+
+// Don't initialize on module load - will be done lazily when needed
 
 /**
  * Verify a Firebase ID token
  * @param idToken - Firebase ID token from client
  * @returns Decoded token with user info
  */
-export async function verifyFirebaseToken(idToken: string): Promise<admin.auth.DecodedIdToken> {
+export async function verifyFirebaseToken(idToken: string): Promise<any> {
+  await initializeFirebase();
+
+  if (!firebaseApp || !admin) {
+    throw new Error('Firebase is not initialized. Google sign-in is currently unavailable.');
+  }
+
   try {
     const decodedToken = await admin.auth().verifyIdToken(idToken);
     console.log(`[Firebase] Token verified for user: ${decodedToken.uid}`);
@@ -93,7 +119,13 @@ export async function verifyFirebaseToken(idToken: string): Promise<admin.auth.D
  * @param uid - Firebase user UID
  * @returns Firebase user record
  */
-export async function getFirebaseUser(uid: string): Promise<admin.auth.UserRecord> {
+export async function getFirebaseUser(uid: string): Promise<any> {
+  await initializeFirebase();
+
+  if (!firebaseApp || !admin) {
+    throw new Error('Firebase is not initialized. Google sign-in is currently unavailable.');
+  }
+
   try {
     const userRecord = await admin.auth().getUser(uid);
     console.log(`[Firebase] Retrieved user: ${userRecord.email}`);
@@ -109,7 +141,13 @@ export async function getFirebaseUser(uid: string): Promise<admin.auth.UserRecor
  * @param email - User email address
  * @returns Firebase user record or null
  */
-export async function getFirebaseUserByEmail(email: string): Promise<admin.auth.UserRecord | null> {
+export async function getFirebaseUserByEmail(email: string): Promise<any> {
+  await initializeFirebase();
+
+  if (!firebaseApp || !admin) {
+    throw new Error('Firebase is not initialized. Google sign-in is currently unavailable.');
+  }
+
   try {
     const userRecord = await admin.auth().getUserByEmail(email);
     return userRecord;
@@ -127,6 +165,12 @@ export async function getFirebaseUserByEmail(email: string): Promise<admin.auth.
  * @param uid - Firebase user UID
  */
 export async function deleteFirebaseUser(uid: string) {
+  await initializeFirebase();
+
+  if (!firebaseApp || !admin) {
+    throw new Error('Firebase is not initialized. Google sign-in is currently unavailable.');
+  }
+
   try {
     await admin.auth().deleteUser(uid);
     console.log(`[Firebase] Deleted user: ${uid}`);
@@ -136,5 +180,5 @@ export async function deleteFirebaseUser(uid: string) {
   }
 }
 
-export { firebaseApp };
-export default admin;
+export { firebaseApp, initializeFirebase };
+// Don't export admin directly since it might not be loaded
