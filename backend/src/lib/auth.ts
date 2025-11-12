@@ -483,7 +483,12 @@ export async function setupAuth(app: Express) {
    * Get current user
    */
   app.get('/api/auth/me', (req, res) => {
+    const userEmail = (req.user as any)?.email || 'none';
+    console.log(`[Auth] /api/auth/me - sessionID: ${req.sessionID}, user: ${userEmail}, authenticated: ${req.isAuthenticated()}`);
+
     if (!req.isAuthenticated()) {
+      const sessionUser = (req.session as any)?.passport?.user;
+      console.log(`[Auth] /api/auth/me returning 401 - session exists: ${!!req.session}, user in session: ${!!sessionUser}`);
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
@@ -497,11 +502,15 @@ export async function setupAuth(app: Express) {
  * Middleware to require authentication
  */
 export const isAuthenticated: RequestHandler = (req, res, next) => {
+  // Enhanced logging for debugging
+  const userEmail = (req.user as any)?.email || 'none';
+  console.log(`[Auth] Checking auth - path: ${req.path}, sessionID: ${req.sessionID}, user: ${userEmail}, authenticated: ${req.isAuthenticated()}`);
+
   if (req.isAuthenticated()) {
     return next();
   }
 
-  console.warn(`[Auth] Unauthorized - path: ${req.path}, sessionID: ${req.sessionID}`);
+  console.warn(`[Auth] Unauthorized - path: ${req.path}, sessionID: ${req.sessionID}, cookies: ${JSON.stringify((req as any).cookies)}`);
   res.status(401).json({ error: 'Unauthorized' });
 };
 

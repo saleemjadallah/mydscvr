@@ -4,6 +4,7 @@ dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { setupAuth, requireAuth } from './lib/auth.js';
 import batchesRouter from './routes/batches.js';
 import { ensureTables } from './db/ensureTables.js';
@@ -29,6 +30,9 @@ app.use(
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
   })
 );
+
+// Cookie parsing middleware (must be before session)
+app.use(cookieParser());
 
 // Body parsing middleware
 // IMPORTANT: Preserve raw body for Stripe webhook signature verification
