@@ -61,6 +61,27 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+// Debug endpoint to check session configuration
+app.get('/api/debug/session', (req: any, res) => {
+  res.json({
+    sessionID: req.sessionID,
+    session: req.session,
+    cookies: req.cookies,
+    headers: {
+      cookie: req.headers.cookie,
+      origin: req.headers.origin,
+      host: req.headers.host,
+    },
+    isAuthenticated: req.isAuthenticated(),
+    user: req.user,
+    sessionConfig: {
+      secure: process.env.SESSION_COOKIE_SECURE,
+      sameSite: process.env.SESSION_COOKIE_SAMESITE,
+      domain: process.env.SESSION_COOKIE_DOMAIN,
+    }
+  });
+});
+
 // Protected route example
 app.get('/api/user/profile', requireAuth, (req, res) => {
   res.json(req.user);
