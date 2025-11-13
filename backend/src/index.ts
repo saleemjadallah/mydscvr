@@ -5,9 +5,12 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import multer from 'multer';
+import crypto from 'crypto';
 import { setupAuth, requireAuth } from './lib/auth.js';
 import batchesRouter from './routes/batches.js';
 import { ensureTables } from './db/ensureTables.js';
+import { uploadBuffer, optimizeUploadedImage } from './lib/storage.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -63,7 +66,56 @@ app.get('/api/user/profile', requireAuth, (req, res) => {
   res.json(req.user);
 });
 
-// Batch routes
+// Configure multer for memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 20,
+    fileSize: 15 * 1024 * 1024, // 15MB per photo
+  },
+});
+
+// Direct upload endpoint - simpler implementation
+app.post('/api/upload', requireAuth, upload.array('photos', 20), async (req: any, res) => {
+  try {
+    const files = (req.files || []) as Express.Multer.File[];
+
+    if (!files.length) {
+      return res.status(400).json({ success: false, error: 'No photos uploaded' });
+    }
+
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'User not authenticated' });
+    }
+
+    const uploadPrefix = `session-${Date.now()}-${crypto.randomUUID()}`;
+    const uploadedUrls: string[] = [];
+
+    for (let index = 0; index < files.length; index++) {
+      const file = files[index];
+
+      if (!file.mimetype.startsWith('image/')) {
+        return res.status(400).json({ success: false, error: 'Only image uploads are allowed' });
+      }
+
+      // Optimize image
+      const processedBuffer = await optimizeUploadedImage(file.buffer);
+
+      // Upload to R2
+      const key = `uploads/${userId}/${uploadPrefix}/${index}.jpg`;
+      const url = await uploadBuffer(processedBuffer, key, 'image/jpeg');
+      uploadedUrls.push(url);
+    }
+
+    return res.json({ success: true, data: uploadedUrls });
+  } catch (error) {
+    console.error('[Upload] Failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to upload photos' });
+  }
+});
+
+// Batch routes (keeping for backward compatibility)
 app.use('/api/batches', batchesRouter);
 
 // Stripe checkout routes (TODO - implement Stripe integration)
