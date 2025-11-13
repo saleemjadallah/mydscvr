@@ -35,8 +35,9 @@ export function getSession() {
     tableName: 'sessions',
   });
 
-  const cookieSecure = isProductionLike; // Auto-detect from NODE_ENV
-  const cookieSameSite = cookieSecure ? 'none' : 'lax';
+  // Cookie configuration for cross-origin requests
+  const cookieSecure = process.env.SESSION_COOKIE_SECURE === 'true' || isProductionLike;
+  const cookieSameSite = process.env.SESSION_COOKIE_SAMESITE || (cookieSecure ? 'none' : 'lax');
   const cookieDomain = process.env.SESSION_COOKIE_DOMAIN || undefined;
 
   console.log(`[Session] Config - secure: ${cookieSecure}, sameSite: ${cookieSameSite}, domain: ${cookieDomain || 'not set'}`);
