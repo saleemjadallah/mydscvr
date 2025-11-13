@@ -10,7 +10,10 @@
       "Bash(npm info:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(npm run db:generate:*)"
+      "Bash(npm run db:generate:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []
