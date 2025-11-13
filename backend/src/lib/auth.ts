@@ -33,6 +33,9 @@ export function getSession() {
     createTableIfMissing: true,
     ttl: 7 * 24 * 60 * 60 * 1000, // 1 week
     tableName: 'sessions',
+    errorLog: (error: any) => {
+      console.error('[Session Store Error]:', error);
+    },
   });
 
   // Cookie configuration for cross-origin requests

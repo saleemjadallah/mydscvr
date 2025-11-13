@@ -82,6 +82,26 @@ app.get('/api/debug/session', (req: any, res) => {
   });
 });
 
+// Test session creation
+app.post('/api/debug/test-session', (req: any, res) => {
+  req.session.testValue = 'session-test-' + Date.now();
+  req.session.save((err: any) => {
+    if (err) {
+      console.error('[Session Test] Save error:', err);
+      return res.status(500).json({
+        error: 'Session save failed',
+        details: err.message
+      });
+    }
+    res.json({
+      message: 'Session created',
+      sessionID: req.sessionID,
+      testValue: req.session.testValue,
+      cookie: req.session.cookie
+    });
+  });
+});
+
 // Protected route example
 app.get('/api/user/profile', requireAuth, (req, res) => {
   res.json(req.user);
