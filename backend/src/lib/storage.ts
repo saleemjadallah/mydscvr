@@ -2,6 +2,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, List
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import sharp from 'sharp';
 import crypto from 'crypto';
+import heicConvert from 'heic-convert';
 
 // Configure R2 client (Cloudflare R2 is S3-compatible)
 const r2Client = new S3Client({
@@ -149,9 +150,51 @@ export async function generatePreview(image: Buffer): Promise<Buffer> {
 
 // Optimize uploaded image for processing
 export async function optimizeUploadedImage(buffer: Buffer): Promise<Buffer> {
-  await sharp(buffer).metadata();
+  let processBuffer = buffer;
 
-  return sharp(buffer)
+  // Detect if the image is HEIC/HEIF format
+  try {
+    const metadata = await sharp(buffer).metadata();
+
+    // If format is not supported or is HEIF/HEIC, convert it
+    if (metadata.format === 'heif' || !metadata.format) {
+      console.log('[Storage] Detected HEIC/HEIF format, converting to JPEG...');
+
+      // Convert HEIC to JPEG using heic-convert
+      const jpegBuffer = await heicConvert({
+        buffer: buffer,
+        format: 'JPEG',
+        quality: 1, // Use highest quality for conversion
+      });
+
+      processBuffer = Buffer.from(jpegBuffer);
+      console.log('[Storage] HEIC conversion successful');
+    }
+  } catch (error: any) {
+    // If sharp fails to read metadata, try HEIC conversion as fallback
+    if (error.message?.includes('heif') || error.message?.includes('unsupported')) {
+      console.log('[Storage] Sharp failed to read image, attempting HEIC conversion...');
+
+      try {
+        const jpegBuffer = await heicConvert({
+          buffer: buffer,
+          format: 'JPEG',
+          quality: 1,
+        });
+
+        processBuffer = Buffer.from(jpegBuffer);
+        console.log('[Storage] HEIC conversion successful (fallback)');
+      } catch (convertError) {
+        console.error('[Storage] HEIC conversion failed:', convertError);
+        throw new Error('Unable to process image format. Please upload a standard image format (JPEG, PNG, etc.)');
+      }
+    } else {
+      throw error;
+    }
+  }
+
+  // Now process the image with sharp
+  return sharp(processBuffer)
     .rotate() // Auto-rotate based on EXIF
     .resize(IMAGE_SETTINGS.upload.maxWidth, IMAGE_SETTINGS.upload.maxHeight, {
       fit: 'inside',
