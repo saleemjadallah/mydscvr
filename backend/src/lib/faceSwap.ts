@@ -134,10 +134,17 @@ export async function swapFace(
             swap_image: sourceImageUrl,
           }
         }
-      ) as string;
+      );
+
+      // Replicate returns a URL string to the output image
+      const imageUrl = typeof output === 'string' ? output : (output as any)?.toString();
+
+      if (!imageUrl) {
+        throw new Error('Replicate did not return a valid image URL');
+      }
 
       // Download the result from Replicate's CDN
-      const imageResponse = await axios.get(output, {
+      const imageResponse = await axios.get(imageUrl, {
         responseType: 'arraybuffer',
         timeout: 30000,
       });
