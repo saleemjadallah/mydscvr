@@ -6,6 +6,25 @@ import sharp from 'sharp';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
+// Base facial preservation prompt to prepend to all templates
+const FACIAL_PRESERVATION_PROMPT = `
+CRITICAL FACIAL ACCURACY REQUIREMENTS:
+- Preserve the EXACT facial features, bone structure, and proportions from the reference photos
+- Maintain precise facial symmetry, eye shape, nose structure, and mouth characteristics
+- Keep skin texture, complexion, and facial details identical to the source
+- Do NOT alter facial features, face shape, or distinctive characteristics
+- Focus changes ONLY on lighting, background, clothing, and pose
+- Ensure the generated face is indistinguishable from the person in the reference photos
+- Prioritize photorealistic facial matching over artistic interpretation
+- Maintain natural skin tones and facial texture from reference images
+
+IDENTITY CONSISTENCY:
+- The person's identity must be 100% recognizable across all variations
+- Facial geometry (eye distance, nose width, jaw line) must match reference exactly
+- Any facial marks, characteristics, or unique features must be preserved
+- Expression changes should be subtle and maintain facial structure
+`;
+
 interface GeneratedHeadshot {
   url: string;
   thumbnail: string;
@@ -21,13 +40,24 @@ interface PlatformSpecs {
   optimizedFor: string;
 }
 
-// Helper function to fetch image as base64
+// Helper function to fetch image as base64 with quality enhancement
 async function imageUrlToBase64(url: string): Promise<string> {
   try {
     const response = await fetch(url);
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    return buffer.toString('base64');
+
+    // Enhance image quality before sending to Gemini
+    const enhancedBuffer = await sharp(buffer)
+      // Normalize lighting for consistency
+      .normalize()
+      // Enhance sharpness
+      .sharpen({ sigma: 1.0 })
+      // Ensure high quality
+      .jpeg({ quality: 98 })
+      .toBuffer();
+
+    return enhancedBuffer.toString('base64');
   } catch (error) {
     console.error('Error fetching image:', error);
     throw error;
@@ -72,12 +102,20 @@ export async function generateHeadshotWithTemplate(
   });
 
   try {
-    // Select photo for this variation (cycle through uploaded photos)
-    const selectedPhotoIndex = variationIndex % inputPhotos.length;
-    const selectedPhotoUrl = inputPhotos[selectedPhotoIndex];
+    // Select best reference photos (use multiple for better accuracy)
+    const numReferencePhotos = Math.min(5, inputPhotos.length);
+    const referencePhotos = [];
 
-    // Fetch the reference photo as base64
-    const base64Image = await imageUrlToBase64(selectedPhotoUrl);
+    // Use a spread of photos, not just sequential
+    for (let i = 0; i < numReferencePhotos; i++) {
+      const photoIndex = Math.floor((i * inputPhotos.length) / numReferencePhotos);
+      referencePhotos.push(inputPhotos[photoIndex]);
+    }
+
+    // Fetch reference photos as base64
+    const base64Images = await Promise.all(
+      referencePhotos.map(url => imageUrlToBase64(url))
+    );
 
     // Parse dimensions from template
     const [width, height] = template.platformSpecs.dimensions.split('x').map(Number);
@@ -92,11 +130,26 @@ export async function generateHeadshotWithTemplate(
     ];
     const expressionVariation = variations[variationIndex % variations.length];
 
-    // Construct detailed prompt for AI headshot generation
-    const prompt = `Generate a professional headshot photograph based on the reference photo provided.
+    // Construct enhanced prompt with facial preservation emphasis
+    const prompt = `${FACIAL_PRESERVATION_PROMPT}
+
+REFERENCE PHOTO ANALYSIS:
+You are provided with ${referencePhotos.length} reference photos of the SAME person.
+Study these photos carefully to understand:
+- The person's exact facial structure and features
+- Natural skin tone and texture
+- Characteristic expressions and angles
+- Unique facial attributes
+
+GENERATION TASK:
+Create a professional ${template.name} headshot that:
+1. PRESERVES the exact facial features from the reference photos (MOST IMPORTANT)
+2. Applies only the specified changes to: background, lighting, clothing, pose
+3. Maintains 100% facial identity recognition
+4. Keeps the person's natural appearance and characteristics
 
 CRITICAL REQUIREMENTS:
-- Maintain the person's facial features, identity, skin tone, and appearance from the reference photo
+- Maintain the person's facial features, identity, skin tone, and appearance from the reference photos
 - Create a completely new professional photograph, not just an edit
 - Output dimensions: ${width}x${height} pixels (${template.platformSpecs.aspectRatio} aspect ratio)
 - Optimized for: ${template.platformSpecs.optimizedFor}
@@ -109,8 +162,22 @@ STYLE SPECIFICATIONS:
 - Lighting: Professional studio lighting with soft shadows
 - Image quality: High resolution, sharp focus, professional color grading
 
-DETAILED INSTRUCTIONS:
+HEADSHOT STYLE REQUIREMENTS:
 ${template.geminiPrompt}
+
+VARIATION ${variationIndex + 1}:
+Generate a subtle variation in ${template.name} style by adjusting:
+- Slight angle variation (within 15 degrees)
+- Minor expression change (maintaining facial structure)
+- Lighting direction and intensity
+- Background element positioning
+
+DO NOT MODIFY:
+- Facial features, bone structure, or proportions
+- Skin texture or complexion (beyond professional color correction)
+- Eye color, shape, or position
+- Nose structure or mouth characteristics
+- Any distinguishing facial features
 
 OUTPUT REQUIREMENTS:
 - Generate a photorealistic professional headshot
@@ -119,21 +186,22 @@ OUTPUT REQUIREMENTS:
 - Natural skin tones with professional retouching
 - Appropriate depth of field for headshots
 - No watermarks, text, or artifacts
+- High-resolution professional headshot (minimum ${width}x${height})
 
 Generate the professional headshot image now.`;
 
-    console.log(`Generating headshot for ${template.name} (variation ${variationIndex})...`);
+    console.log(`Generating headshot for ${template.name} (variation ${variationIndex}) with ${referencePhotos.length} reference photos...`);
 
-    // Create the content parts with the reference image
-    const imagePart = {
+    // Create content parts with multiple reference images
+    const imageParts = base64Images.map(data => ({
       inlineData: {
         mimeType: 'image/jpeg',
-        data: base64Image,
+        data: data,
       },
-    };
+    }));
 
-    // Call Gemini 2.5 Flash Image to generate the headshot
-    const result = await model.generateContent([prompt, imagePart]);
+    // Call Gemini 2.5 Flash Image to generate the headshot with multiple references
+    const result = await model.generateContent([prompt, ...imageParts]);
     const response = result.response;
 
     // Extract generated image from response parts
