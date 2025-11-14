@@ -5,7 +5,6 @@
 
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { PROFESSIONAL_WARDROBE, ProfessionalOutfit, isOutfitCompatibleWithTemplate } from '../data/professionalWardrobe.js';
-import { STYLE_TEMPLATES } from './templates.js';
 import sharp from 'sharp';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -302,8 +301,8 @@ export function getAvailableOutfits(filters?: {
     outfits = outfits.filter(o => o.gender === filters.gender || o.gender === 'unisex');
   }
 
-  if (filters?.minFormality) {
-    outfits = outfits.filter(o => o.formality >= filters.minFormality);
+  if (filters?.minFormality !== undefined) {
+    outfits = outfits.filter(o => o.formality >= filters.minFormality!);
   }
 
   if (filters?.premiumOnly) {

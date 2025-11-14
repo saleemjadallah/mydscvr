@@ -77,12 +77,14 @@ export async function uploadGeneratedHeadshot(
   metadata: {
     template: string;
     index: number;
+    folder?: string;
   }
 ): Promise<{ url: string; thumbnail: string }> {
   const headshotId = `${metadata.template}-${metadata.index}`;
+  const folderPath = metadata.folder || 'generated';
 
   // Upload full resolution
-  const fullKey = `generated/${userId}/${batchId}/${headshotId}.jpg`;
+  const fullKey = `${folderPath}/${userId}/${batchId}/${headshotId}.jpg`;
   await r2Client.send(
     new PutObjectCommand({
       Bucket: BUCKET_NAME,

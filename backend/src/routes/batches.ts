@@ -21,7 +21,6 @@ import {
   generateOutfitPreview,
   getOutfitById,
 } from '../lib/virtualWardrobeService.js';
-import { PROFESSIONAL_WARDROBE } from '../data/professionalWardrobe.js';
 
 const router = Router();
 
@@ -401,7 +400,6 @@ router.get('/wardrobe/:outfitId', requireAuth, async (req: AuthedRequest, res: R
 // Generate quick preview of outfit on headshot (non-destructive, no credits consumed)
 router.post('/wardrobe/preview', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
-    const userId = getUserId(req);
     const { headshotUrl, outfitId, templateId, colorVariant } = req.body;
 
     if (!headshotUrl || !outfitId) {
