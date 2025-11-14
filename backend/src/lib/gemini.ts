@@ -1,8 +1,9 @@
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
-import { uploadGeneratedHeadshot } from './storage.js';
+import { uploadGeneratedHeadshot, uploadBuffer } from './storage.js';
 import { STYLE_TEMPLATES } from './templates.js';
 import type { HeadshotBatch } from '../db/index.js';
 import sharp from 'sharp';
+import { processHeadshotWithFaceSwap, checkFaceSwapService } from './faceSwap.js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -229,8 +230,8 @@ Generate the professional headshot image now.`;
       throw new Error('No image generated in response');
     }
 
-    // Ensure correct dimensions and optimize
-    const finalImage = await sharp(generatedImageBuffer)
+    // Ensure correct dimensions and optimize Gemini's output
+    let finalImage = await sharp(generatedImageBuffer)
       .resize(width, height, {
         fit: 'cover',
         position: 'center',
@@ -240,6 +241,44 @@ Generate the professional headshot image now.`;
         chromaSubsampling: '4:4:4',
       })
       .toBuffer();
+
+    // ============================================================================
+    // FACE-SWAPPING STEP: Replace AI-generated face with user's real face
+    // ============================================================================
+    try {
+      // Check if face-swap service is available
+      const faceSwapAvailable = await checkFaceSwapService();
+
+      if (faceSwapAvailable) {
+        console.log('[FaceSwap] Service available, performing face swap...');
+
+        // Upload Gemini's generated image temporarily to R2 for face-swap service to access
+        const tempKey = `temp/${userId}/${batchId}/gemini-${Date.now()}.jpg`;
+        const tempUrl = await uploadBuffer(finalImage, tempKey, 'image/jpeg');
+
+        // Perform face swap using primary reference photo
+        const swappedImage = await processHeadshotWithFaceSwap(
+          tempUrl,
+          referencePhotos[0], // Use first (best) reference photo
+          referencePhotos.slice(1) // Fallbacks
+        );
+
+        if (swappedImage) {
+          console.log('[FaceSwap] ✓ Face swap successful! Using swapped image.');
+          finalImage = swappedImage;
+
+          // Clean up temp file (optional - could also let R2 lifecycle rules handle it)
+          // We'll keep it for now in case we need to debug
+        } else {
+          console.warn('[FaceSwap] Face swap failed, using original Gemini image');
+        }
+      } else {
+        console.warn('[FaceSwap] Service not available, using original Gemini image');
+      }
+    } catch (faceSwapError) {
+      console.error('[FaceSwap] Error during face swap, falling back to original:', faceSwapError);
+      // Continue with Gemini's original image
+    }
 
     // Generate thumbnail
     const thumbnailBuffer = await sharp(finalImage)
