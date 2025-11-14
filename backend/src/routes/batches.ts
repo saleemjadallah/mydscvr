@@ -156,6 +156,129 @@ router.get('/', requireAuth, async (req: AuthedRequest, res: Response) => {
   }
 });
 
+// ============================================================================
+// VIRTUAL WARDROBE & EDIT REQUESTS (must be before /:batchId routes)
+// ============================================================================
+
+// Get available professional wardrobe outfits
+router.get('/wardrobe', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const { category, gender, minFormality, premiumOnly } = req.query;
+
+    const filters: any = {};
+    if (category) filters.category = category as string;
+    if (gender) filters.gender = gender as string;
+    if (minFormality) filters.minFormality = parseInt(minFormality as string);
+    if (premiumOnly) filters.premiumOnly = premiumOnly === 'true';
+
+    const outfits = getAvailableOutfits(filters);
+
+    return res.json({
+      success: true,
+      data: {
+        outfits,
+        total: outfits.length,
+        categories: ['business-formal', 'business-casual', 'creative', 'executive', 'industry-specific'],
+      },
+    });
+  } catch (error) {
+    console.error('[Wardrobe] Failed to fetch outfits:', error);
+    return res.status(500).json({ success: false, error: 'Failed to load wardrobe' });
+  }
+});
+
+// Get single outfit by ID
+router.get('/wardrobe/:outfitId', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const { outfitId } = req.params;
+
+    const outfit = getOutfitById(outfitId);
+
+    if (!outfit) {
+      return res.status(404).json({ success: false, error: 'Outfit not found' });
+    }
+
+    return res.json({ success: true, data: outfit });
+  } catch (error) {
+    console.error('[Wardrobe] Failed to fetch outfit:', error);
+    return res.status(500).json({ success: false, error: 'Failed to load outfit' });
+  }
+});
+
+// Generate quick preview of outfit on headshot (non-destructive, no credits consumed)
+router.post('/wardrobe/preview', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const { headshotUrl, outfitId, templateId, colorVariant } = req.body;
+
+    if (!headshotUrl || !outfitId) {
+      return res.status(400).json({ success: false, error: 'headshotUrl and outfitId are required' });
+    }
+
+    // Validate outfit exists
+    const outfit = getOutfitById(outfitId);
+    if (!outfit) {
+      return res.status(404).json({ success: false, error: 'Outfit not found' });
+    }
+
+    // Generate preview (smaller, faster)
+    const previewBuffer = await generateOutfitPreview(headshotUrl, outfitId, {
+      templateId,
+      colorVariant,
+    });
+
+    // Return as base64 for easy frontend display
+    const previewBase64 = previewBuffer.toString('base64');
+
+    return res.json({
+      success: true,
+      data: {
+        preview: `data:image/jpeg;base64,${previewBase64}`,
+        outfit: outfit,
+      },
+    });
+  } catch (error) {
+    console.error('[Wardrobe] Preview failed:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to generate preview',
+    });
+  }
+});
+
+// Get user's edit credits remaining
+router.get('/edit-credits', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+
+    const [user] = await db
+      .select({
+        editCreditsRemaining: users.editCreditsRemaining,
+        totalEditCreditsEarned: users.totalEditCreditsEarned,
+      })
+      .from(users)
+      .where(eq(users.id, userId));
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        remaining: user.editCreditsRemaining || 0,
+        total: user.totalEditCreditsEarned || 0,
+      },
+    });
+  } catch (error) {
+    console.error('[Edit Credits] Failed to fetch:', error);
+    return res.status(500).json({ success: false, error: 'Failed to load edit credits' });
+  }
+});
+
+// ============================================================================
+// BATCH-SPECIFIC ROUTES (with :batchId parameter)
+// ============================================================================
+
 router.get('/:batchId', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const userId = getUserId(req);
@@ -349,123 +472,8 @@ router.get('/:batchId/download-all', requireAuth, async (req: AuthedRequest, res
 });
 
 // ============================================================================
-// VIRTUAL WARDROBE & EDIT REQUESTS
+// EDIT REQUESTS (outfit changes, regenerations, etc.)
 // ============================================================================
-
-// Get available professional wardrobe outfits
-router.get('/wardrobe', requireAuth, async (req: AuthedRequest, res: Response) => {
-  try {
-    const { category, gender, minFormality, premiumOnly } = req.query;
-
-    const filters: any = {};
-    if (category) filters.category = category as string;
-    if (gender) filters.gender = gender as string;
-    if (minFormality) filters.minFormality = parseInt(minFormality as string);
-    if (premiumOnly) filters.premiumOnly = premiumOnly === 'true';
-
-    const outfits = getAvailableOutfits(filters);
-
-    return res.json({
-      success: true,
-      data: {
-        outfits,
-        total: outfits.length,
-        categories: ['business-formal', 'business-casual', 'creative', 'executive', 'industry-specific'],
-      },
-    });
-  } catch (error) {
-    console.error('[Wardrobe] Failed to fetch outfits:', error);
-    return res.status(500).json({ success: false, error: 'Failed to load wardrobe' });
-  }
-});
-
-// Get single outfit by ID
-router.get('/wardrobe/:outfitId', requireAuth, async (req: AuthedRequest, res: Response) => {
-  try {
-    const { outfitId } = req.params;
-
-    const outfit = getOutfitById(outfitId);
-
-    if (!outfit) {
-      return res.status(404).json({ success: false, error: 'Outfit not found' });
-    }
-
-    return res.json({ success: true, data: outfit });
-  } catch (error) {
-    console.error('[Wardrobe] Failed to fetch outfit:', error);
-    return res.status(500).json({ success: false, error: 'Failed to load outfit' });
-  }
-});
-
-// Generate quick preview of outfit on headshot (non-destructive, no credits consumed)
-router.post('/wardrobe/preview', requireAuth, async (req: AuthedRequest, res: Response) => {
-  try {
-    const { headshotUrl, outfitId, templateId, colorVariant } = req.body;
-
-    if (!headshotUrl || !outfitId) {
-      return res.status(400).json({ success: false, error: 'headshotUrl and outfitId are required' });
-    }
-
-    // Validate outfit exists
-    const outfit = getOutfitById(outfitId);
-    if (!outfit) {
-      return res.status(404).json({ success: false, error: 'Outfit not found' });
-    }
-
-    // Generate preview (smaller, faster)
-    const previewBuffer = await generateOutfitPreview(headshotUrl, outfitId, {
-      templateId,
-      colorVariant,
-    });
-
-    // Return as base64 for easy frontend display
-    const previewBase64 = previewBuffer.toString('base64');
-
-    return res.json({
-      success: true,
-      data: {
-        preview: `data:image/jpeg;base64,${previewBase64}`,
-        outfit: outfit,
-      },
-    });
-  } catch (error) {
-    console.error('[Wardrobe] Preview failed:', error);
-    return res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to generate preview',
-    });
-  }
-});
-
-// Get user's edit credits remaining
-router.get('/edit-credits', requireAuth, async (req: AuthedRequest, res: Response) => {
-  try {
-    const userId = getUserId(req);
-
-    const [user] = await db
-      .select({
-        editCreditsRemaining: users.editCreditsRemaining,
-        totalEditCreditsEarned: users.totalEditCreditsEarned,
-      })
-      .from(users)
-      .where(eq(users.id, userId));
-
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
-
-    return res.json({
-      success: true,
-      data: {
-        remaining: user.editCreditsRemaining || 0,
-        total: user.totalEditCreditsEarned || 0,
-      },
-    });
-  } catch (error) {
-    console.error('[Edit Credits] Failed to fetch:', error);
-    return res.status(500).json({ success: false, error: 'Failed to load edit credits' });
-  }
-});
 
 // Request outfit change on a headshot (costs 2 credits)
 router.post('/:batchId/edit', requireAuth, async (req: AuthedRequest, res: Response) => {
