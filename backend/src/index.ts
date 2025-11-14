@@ -15,6 +15,10 @@ import { uploadBuffer, optimizeUploadedImage } from './lib/storage.js';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust Railway/Cloudflare reverse proxy for secure cookies
+// This is critical for HTTPS session cookies to work properly
+app.set('trust proxy', 1);
+
 // Ensure database tables exist on startup
 console.log('Checking database tables...');
 await ensureTables();
