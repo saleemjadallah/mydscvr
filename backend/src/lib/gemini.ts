@@ -76,10 +76,11 @@ export async function generateHeadshotWithTemplate(
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash-image',
     generationConfig: {
-      temperature: 0.7,
-      topK: 40,
-      topP: 0.95,
+      temperature: 0.3, // Lower temperature for more accurate, less creative outputs
+      topK: 20, // More focused on likely tokens for facial accuracy
+      topP: 0.85, // Slightly lower for more deterministic outputs
       maxOutputTokens: 8192,
+      candidateCount: 1, // Generate single best result
     },
     safetySettings: [
       {
@@ -133,13 +134,20 @@ export async function generateHeadshotWithTemplate(
     // Construct enhanced prompt with facial preservation emphasis
     const prompt = `${FACIAL_PRESERVATION_PROMPT}
 
-REFERENCE PHOTO ANALYSIS:
-You are provided with ${referencePhotos.length} reference photos of the SAME person.
-Study these photos carefully to understand:
-- The person's exact facial structure and features
-- Natural skin tone and texture
-- Characteristic expressions and angles
-- Unique facial attributes
+CRITICAL INSTRUCTION: Take your time to carefully analyze the reference photos before generating. Accuracy is more important than speed.
+
+REFERENCE PHOTO ANALYSIS (STUDY CAREFULLY):
+You are provided with ${referencePhotos.length} reference photos of the SAME person from different angles.
+BEFORE generating, analyze and memorize these specific details:
+- Exact facial structure: face shape, jawline, cheekbones, forehead
+- Eye characteristics: shape, size, distance between eyes, eye color, eyebrow shape
+- Nose structure: width, length, bridge shape, nostril shape
+- Mouth and lips: shape, size, natural smile characteristics
+- Skin texture: tone, any marks, natural skin characteristics
+- Facial proportions: golden ratio measurements, symmetry
+- Unique identifying features: anything distinctive about this person's face
+
+STUDY THE REFERENCE PHOTOS THOROUGHLY. The generated face must be IDENTICAL to the reference photos.
 
 GENERATION TASK:
 Create a professional ${template.name} headshot that:
