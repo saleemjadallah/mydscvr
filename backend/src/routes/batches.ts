@@ -11,10 +11,17 @@ import {
   downloadFileByUrl,
   optimizeUploadedImage,
 } from '../lib/storage.js';
-import { db, headshotBatches } from '../db/index.js';
+import { db, headshotBatches, editRequests, users } from '../db/index.js';
 import { getPlan, HEADSHOT_PLANS } from '../lib/plans.js';
 import { STYLE_TEMPLATES } from '../lib/templates.js';
-import { queueGenerationJob } from '../lib/queue.js';
+import { queueGenerationJob, queueEditRequestJob } from '../lib/queue.js';
+import {
+  getAvailableOutfits,
+  validateOutfitChangeRequest,
+  generateOutfitPreview,
+  getOutfitById,
+} from '../lib/virtualWardrobeService.js';
+import { PROFESSIONAL_WARDROBE } from '../data/professionalWardrobe.js';
 
 const router = Router();
 
@@ -339,6 +346,308 @@ router.get('/:batchId/download-all', requireAuth, async (req: AuthedRequest, res
   } catch (error) {
     console.error('[Batches] Download all failed:', error);
     return res.status(500).json({ success: false, error: 'Failed to create download archive' });
+  }
+});
+
+// ============================================================================
+// VIRTUAL WARDROBE & EDIT REQUESTS
+// ============================================================================
+
+// Get available professional wardrobe outfits
+router.get('/wardrobe', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const { category, gender, minFormality, premiumOnly } = req.query;
+
+    const filters: any = {};
+    if (category) filters.category = category as string;
+    if (gender) filters.gender = gender as string;
+    if (minFormality) filters.minFormality = parseInt(minFormality as string);
+    if (premiumOnly) filters.premiumOnly = premiumOnly === 'true';
+
+    const outfits = getAvailableOutfits(filters);
+
+    return res.json({
+      success: true,
+      data: {
+        outfits,
+        total: outfits.length,
+        categories: ['business-formal', 'business-casual', 'creative', 'executive', 'industry-specific'],
+      },
+    });
+  } catch (error) {
+    console.error('[Wardrobe] Failed to fetch outfits:', error);
+    return res.status(500).json({ success: false, error: 'Failed to load wardrobe' });
+  }
+});
+
+// Get single outfit by ID
+router.get('/wardrobe/:outfitId', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const { outfitId } = req.params;
+
+    const outfit = getOutfitById(outfitId);
+
+    if (!outfit) {
+      return res.status(404).json({ success: false, error: 'Outfit not found' });
+    }
+
+    return res.json({ success: true, data: outfit });
+  } catch (error) {
+    console.error('[Wardrobe] Failed to fetch outfit:', error);
+    return res.status(500).json({ success: false, error: 'Failed to load outfit' });
+  }
+});
+
+// Generate quick preview of outfit on headshot (non-destructive, no credits consumed)
+router.post('/wardrobe/preview', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const { headshotUrl, outfitId, templateId, colorVariant } = req.body;
+
+    if (!headshotUrl || !outfitId) {
+      return res.status(400).json({ success: false, error: 'headshotUrl and outfitId are required' });
+    }
+
+    // Validate outfit exists
+    const outfit = getOutfitById(outfitId);
+    if (!outfit) {
+      return res.status(404).json({ success: false, error: 'Outfit not found' });
+    }
+
+    // Generate preview (smaller, faster)
+    const previewBuffer = await generateOutfitPreview(headshotUrl, outfitId, {
+      templateId,
+      colorVariant,
+    });
+
+    // Return as base64 for easy frontend display
+    const previewBase64 = previewBuffer.toString('base64');
+
+    return res.json({
+      success: true,
+      data: {
+        preview: `data:image/jpeg;base64,${previewBase64}`,
+        outfit: outfit,
+      },
+    });
+  } catch (error) {
+    console.error('[Wardrobe] Preview failed:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to generate preview',
+    });
+  }
+});
+
+// Get user's edit credits remaining
+router.get('/edit-credits', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+
+    const [user] = await db
+      .select({
+        editCreditsRemaining: users.editCreditsRemaining,
+        totalEditCreditsEarned: users.totalEditCreditsEarned,
+      })
+      .from(users)
+      .where(eq(users.id, userId));
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        remaining: user.editCreditsRemaining || 0,
+        total: user.totalEditCreditsEarned || 0,
+      },
+    });
+  } catch (error) {
+    console.error('[Edit Credits] Failed to fetch:', error);
+    return res.status(500).json({ success: false, error: 'Failed to load edit credits' });
+  }
+});
+
+// Request outfit change on a headshot (costs 2 credits)
+router.post('/:batchId/edit', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const batchId = Number(req.params.batchId);
+
+    const { headshotId, outfitId, colorVariant } = req.body;
+
+    if (!headshotId || !outfitId) {
+      return res.status(400).json({ success: false, error: 'headshotId and outfitId are required' });
+    }
+
+    // Verify batch ownership
+    const [batch] = await db
+      .select()
+      .from(headshotBatches)
+      .where(and(eq(headshotBatches.id, batchId), eq(headshotBatches.userId, userId)));
+
+    if (!batch) {
+      return res.status(404).json({ success: false, error: 'Batch not found' });
+    }
+
+    // Check if user's plan allows wardrobe changes
+    const planConfig = getPlan(batch.plan);
+    if (!planConfig.canChangeOutfits) {
+      return res.status(403).json({
+        success: false,
+        error: 'Wardrobe changes are only available for Professional and Executive plans. Please upgrade your plan.',
+      });
+    }
+
+    // Validate outfit
+    const validation = validateOutfitChangeRequest(outfitId);
+    if (!validation.valid) {
+      return res.status(400).json({ success: false, error: validation.error });
+    }
+
+    // Check user has enough edit credits (outfit changes cost 2 credits)
+    const OUTFIT_CHANGE_COST = 2;
+
+    const [user] = await db
+      .select({
+        editCreditsRemaining: users.editCreditsRemaining,
+      })
+      .from(users)
+      .where(eq(users.id, userId));
+
+    if (!user || (user.editCreditsRemaining || 0) < OUTFIT_CHANGE_COST) {
+      return res.status(403).json({
+        success: false,
+        error: `Insufficient edit credits. Outfit changes require ${OUTFIT_CHANGE_COST} credits. You have ${user?.editCreditsRemaining || 0} remaining.`,
+      });
+    }
+
+    // Create edit request
+    const [editRequest] = await db
+      .insert(editRequests)
+      .values({
+        batchId,
+        userId,
+        headshotId,
+        editType: 'outfit_change',
+        outfitId,
+        colorVariant: colorVariant || null,
+        costInCredits: OUTFIT_CHANGE_COST,
+        status: 'pending',
+      })
+      .returning();
+
+    // Deduct edit credits immediately
+    await db
+      .update(users)
+      .set({
+        editCreditsRemaining: (user.editCreditsRemaining || 0) - OUTFIT_CHANGE_COST,
+      })
+      .where(eq(users.id, userId));
+
+    // Queue edit job for processing
+    await queueEditRequestJob(editRequest.id);
+
+    return res.json({
+      success: true,
+      data: {
+        editRequest,
+        creditsRemaining: (user.editCreditsRemaining || 0) - OUTFIT_CHANGE_COST,
+      },
+    });
+  } catch (error) {
+    console.error('[Edit Request] Failed to create:', error);
+    return res.status(500).json({ success: false, error: 'Failed to create edit request' });
+  }
+});
+
+// Get edit requests for a batch
+router.get('/:batchId/edits', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const batchId = Number(req.params.batchId);
+
+    // Verify batch ownership
+    const [batch] = await db
+      .select()
+      .from(headshotBatches)
+      .where(and(eq(headshotBatches.id, batchId), eq(headshotBatches.userId, userId)));
+
+    if (!batch) {
+      return res.status(404).json({ success: false, error: 'Batch not found' });
+    }
+
+    // Fetch all edit requests for this batch
+    const edits = await db
+      .select()
+      .from(editRequests)
+      .where(eq(editRequests.batchId, batchId))
+      .orderBy(desc(editRequests.createdAt));
+
+    // Enrich edit requests with outfit details
+    const enrichedEdits = edits.map((edit) => {
+      let outfitDetails = null;
+      if (edit.outfitId) {
+        outfitDetails = getOutfitById(edit.outfitId);
+      }
+
+      return {
+        ...edit,
+        outfitDetails,
+      };
+    });
+
+    return res.json({ success: true, data: enrichedEdits });
+  } catch (error) {
+    console.error('[Edit Requests] Failed to fetch:', error);
+    return res.status(500).json({ success: false, error: 'Failed to load edit requests' });
+  }
+});
+
+// Get single edit request by ID
+router.get('/:batchId/edits/:editId', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const batchId = Number(req.params.batchId);
+    const editId = Number(req.params.editId);
+
+    // Verify batch ownership
+    const [batch] = await db
+      .select()
+      .from(headshotBatches)
+      .where(and(eq(headshotBatches.id, batchId), eq(headshotBatches.userId, userId)));
+
+    if (!batch) {
+      return res.status(404).json({ success: false, error: 'Batch not found' });
+    }
+
+    // Fetch edit request
+    const [edit] = await db
+      .select()
+      .from(editRequests)
+      .where(and(eq(editRequests.id, editId), eq(editRequests.batchId, batchId)));
+
+    if (!edit) {
+      return res.status(404).json({ success: false, error: 'Edit request not found' });
+    }
+
+    // Enrich with outfit details
+    let outfitDetails = null;
+    if (edit.outfitId) {
+      outfitDetails = getOutfitById(edit.outfitId);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...edit,
+        outfitDetails,
+      },
+    });
+  } catch (error) {
+    console.error('[Edit Request] Failed to fetch:', error);
+    return res.status(500).json({ success: false, error: 'Failed to load edit request' });
   }
 });
 

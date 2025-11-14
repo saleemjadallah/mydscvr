@@ -20,6 +20,10 @@ export const users = pgTable('users', {
   uploads_used: integer('uploads_used').default(0).notNull(),
   batches_created: integer('batches_created').default(0).notNull(),
 
+  // Edit credits tracking
+  editCreditsRemaining: integer('edit_credits_remaining').default(0).notNull(),
+  totalEditCreditsEarned: integer('total_edit_credits_earned').default(0).notNull(),
+
   // Premium/Free tier
   isFreeUser: integer('is_free_user').default(0).notNull(), // 1 = free unlimited access, 0 = normal user
 
@@ -42,6 +46,9 @@ export const headshotBatches = pgTable('headshot_batches', {
   styleTemplates: json('style_templates').$type<string[]>(), // [\"linkedin\", \"corporate\", \"creative\"]
   backgrounds: json('backgrounds').$type<string[]>(), // Selected backgrounds (if custom)
   outfits: json('outfits').$type<string[]>(), // Selected outfit styles (if custom)
+
+  // Edit credits allocated with this batch
+  editCreditsAllocated: integer('edit_credits_allocated').default(0).notNull(),
 
   // Results
   generatedHeadshots: json('generated_headshots').$type<{
@@ -76,12 +83,23 @@ export const editRequests = pgTable('edit_requests', {
   id: serial('id').primaryKey(),
   batchId: integer('batch_id').notNull().references(() => headshotBatches.id),
   userId: text('user_id').notNull().references(() => users.id),
-  headshotId: text('headshot_id').notNull(),
+  headshotId: text('headshot_id').notNull(), // URL or identifier of the original headshot
   editType: text('edit_type').notNull(), // background_change, outfit_change, regenerate
-  status: text('status').notNull().default('pending'), // pending, completed, failed
-  resultUrl: text('result_url'),
+  status: text('status').notNull().default('pending'), // pending, processing, completed, failed
+
+  // Edit details
+  outfitId: text('outfit_id'), // For outfit_change type
+  colorVariant: text('color_variant'), // Optional color variant
+  costInCredits: integer('cost_in_credits').notNull().default(2), // Cost: 2 credits for outfit changes
+
+  // Results
+  resultUrl: text('result_url'), // URL of the edited headshot
+  thumbnailUrl: text('thumbnail_url'), // Thumbnail of edited headshot
+  errorMessage: text('error_message'), // If failed
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   completedAt: timestamp('completed_at'),
+  processingTimeSeconds: integer('processing_time_seconds'),
 });
 
 // OTP codes table for email verification and login

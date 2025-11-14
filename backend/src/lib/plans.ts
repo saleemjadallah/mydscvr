@@ -9,6 +9,10 @@ export const HEADSHOT_PLANS = {
     editCredits: 2,
     turnaroundHours: 3,
     stripePriceId: process.env.STRIPE_PRICE_BASIC || 'price_basic_xxx',
+    // Virtual wardrobe features
+    canChangeOutfits: false, // Not available in Basic plan
+    virtualOutfits: 0,
+    premiumOutfits: 0,
   },
   professional: {
     id: 'professional',
@@ -17,10 +21,14 @@ export const HEADSHOT_PLANS = {
     headshots: 15,
     backgrounds: 3,
     outfits: 3,
-    editCredits: 5,
+    editCredits: 10, // Increased to 10 for Professional plan
     turnaroundHours: 2,
     stripePriceId: process.env.STRIPE_PRICE_PROFESSIONAL || 'price_pro_xxx',
     popular: true,
+    // Virtual wardrobe features
+    canChangeOutfits: true, // Available in Professional plan
+    virtualOutfits: 5, // Can select up to 5 virtual outfits per edit
+    premiumOutfits: 2, // 2 can be premium outfits
   },
   executive: {
     id: 'executive',
@@ -29,9 +37,13 @@ export const HEADSHOT_PLANS = {
     headshots: 20,
     backgrounds: 5,
     outfits: 5,
-    editCredits: 10,
+    editCredits: 20, // Increased to 20 for Executive plan
     turnaroundHours: 1,
     stripePriceId: process.env.STRIPE_PRICE_EXECUTIVE || 'price_exec_xxx',
+    // Virtual wardrobe features
+    canChangeOutfits: true, // Available in Executive plan
+    virtualOutfits: Infinity, // Unlimited virtual outfits
+    premiumOutfits: Infinity, // All premium outfits included
   },
 };
 
