@@ -1,11 +1,21 @@
 /**
  * Face-Swapping Integration Service
- * Connects Node.js backend with Python InsightFace microservice
+ * Uses Replicate API for high-quality professional face swapping
  */
 
+import Replicate from 'replicate';
 import axios from 'axios';
 
+const REPLICATE_API_KEY = process.env.REPLICATE_API_KEY;
+const USE_REPLICATE = !!REPLICATE_API_KEY; // Use Replicate if API key is set
+
+// Fallback to self-hosted service if no Replicate key
 const FACE_SWAP_SERVICE_URL = process.env.FACE_SWAP_SERVICE_URL || 'http://localhost:5000';
+
+// Initialize Replicate client
+const replicate = REPLICATE_API_KEY ? new Replicate({
+  auth: REPLICATE_API_KEY,
+}) : null;
 
 interface PhotoAnalysis {
   score: number;
@@ -94,7 +104,8 @@ export async function selectBestReferencePhoto(imageUrls: string[]): Promise<Bes
 }
 
 /**
- * Swap face from source image onto target image
+ * Swap face from source image onto target image using Replicate API
+ * Falls back to self-hosted service if Replicate is not available
  *
  * @param targetImageUrl - URL of generated professional headshot (from Gemini)
  * @param sourceImageUrl - URL of user's reference photo
@@ -104,13 +115,45 @@ export async function swapFace(
   targetImageUrl: string,
   sourceImageUrl: string
 ): Promise<Buffer | null> {
+  console.log('[FaceSwap] Swapping face...');
+  console.log(`[FaceSwap]   Target: ${targetImageUrl.substring(0, 60)}...`);
+  console.log(`[FaceSwap]   Source: ${sourceImageUrl.substring(0, 60)}...`);
+
+  const startTime = Date.now();
+
+  // Use Replicate API for high-quality face swapping if available
+  if (USE_REPLICATE && replicate) {
+    try {
+      console.log('[FaceSwap] Using Replicate API (high quality)...');
+
+      const output = await replicate.run(
+        "yan-ops/face_swap:d5900f9ebed33e7ae6534b097f1151646b1059b2258c58ea950d33778f6d109a",
+        {
+          input: {
+            target_image: targetImageUrl,
+            swap_image: sourceImageUrl,
+          }
+        }
+      ) as string;
+
+      // Download the result from Replicate's CDN
+      const imageResponse = await axios.get(output, {
+        responseType: 'arraybuffer',
+        timeout: 30000,
+      });
+
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log(`[FaceSwap] ✓ Replicate face swap completed in ${elapsed}s`);
+
+      return Buffer.from(imageResponse.data);
+    } catch (error: any) {
+      console.error('[FaceSwap] Replicate API error:', error.message);
+      console.log('[FaceSwap] Falling back to self-hosted service...');
+    }
+  }
+
+  // Fallback to self-hosted InsightFace service
   try {
-    console.log('[FaceSwap] Swapping face...');
-    console.log(`[FaceSwap]   Target: ${targetImageUrl.substring(0, 60)}...`);
-    console.log(`[FaceSwap]   Source: ${sourceImageUrl.substring(0, 60)}...`);
-
-    const startTime = Date.now();
-
     const response = await axios.post(
       `${FACE_SWAP_SERVICE_URL}/swap-face`,
       {
@@ -119,7 +162,7 @@ export async function swapFace(
       },
       {
         responseType: 'arraybuffer',
-        timeout: 60000, // 60 seconds for face swap
+        timeout: 60000,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -127,12 +170,11 @@ export async function swapFace(
     );
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.log(`[FaceSwap] ✓ Face swap completed in ${elapsed}s`);
+    console.log(`[FaceSwap] ✓ Self-hosted face swap completed in ${elapsed}s`);
 
     return Buffer.from(response.data);
   } catch (error: any) {
     if (error.response?.data) {
-      // Try to parse error from service
       try {
         const errorText = Buffer.from(error.response.data).toString();
         const errorJson = JSON.parse(errorText);
