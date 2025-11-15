@@ -174,6 +174,24 @@ export async function trainFluxLora(
 }
 
 /**
+ * Map our template aspect ratios to Flux's image_size presets
+ */
+function mapAspectRatioToFluxSize(aspectRatio: string): string {
+  const mapping: Record<string, string> = {
+    '1:1': 'square_hd',      // LinkedIn, Social
+    '4:5': 'portrait_4_3',   // Corporate, Casual (closest match)
+    '3:4': 'portrait_4_3',   // Creative (closest match)
+    '2:3': 'portrait_4_3',   // Resume, Executive (closest match)
+    '16:9': 'landscape_16_9', // Speaker
+    '35:45': 'portrait_4_3',  // Visa (closest biometric-friendly match)
+  };
+
+  const fluxSize = mapping[aspectRatio] || 'square_hd';
+  console.log(`[FluxLoRA] Mapped aspect ratio ${aspectRatio} → ${fluxSize}`);
+  return fluxSize;
+}
+
+/**
  * Generate headshot using trained Flux LoRA model
  *
  * @param loraUrl - URL of trained LoRA file from training step
@@ -192,8 +210,10 @@ export async function generateWithFluxLora(
 
   console.log(`[FluxLoRA] Generating image...`);
   console.log(`[FluxLoRA] Prompt: ${prompt}`);
-  console.log(`[FluxLoRA] Aspect ratio: ${aspectRatio}`);
   console.log(`[FluxLoRA] LoRA URL: ${loraUrl}`);
+
+  // Map our aspect ratio to Flux's preset sizes
+  const fluxImageSize = mapAspectRatioToFluxSize(aspectRatio);
 
   const generationInput = {
     prompt: prompt,
@@ -203,7 +223,7 @@ export async function generateWithFluxLora(
         scale: 1.0, // Full strength of LoRA
       }
     ],
-    image_size: aspectRatio,
+    image_size: fluxImageSize, // Use Flux preset instead of aspect ratio
     num_inference_steps: 28, // Good quality/speed balance
     guidance_scale: 3.5,     // Recommended for Flux
     num_images: 1,
