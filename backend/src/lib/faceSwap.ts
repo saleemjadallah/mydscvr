@@ -128,13 +128,14 @@ export async function swapFace(
     try {
       console.log('[FaceSwap] Using Replicate API (high quality)...');
 
-      // Using lucataco/faceswap - well-maintained model with face enhancement
+      // Using codeplugtech/face-swap - verified working model on Replicate
+      // Cost: ~$0.0028 per swap, Duration: ~29s (CPU)
       const output = await replicate.run(
-        "lucataco/faceswap",
+        "codeplugtech/face-swap",
         {
           input: {
-            target_image: targetImageUrl,
-            source_image: sourceImageUrl,
+            input_image: targetImageUrl,  // Target image (Gemini generated)
+            swap_image: sourceImageUrl,    // Source face (user photo)
           }
         }
       );
