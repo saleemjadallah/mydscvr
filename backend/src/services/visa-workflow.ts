@@ -17,12 +17,6 @@ export interface VisaRequirements {
   purposeOfTravel?: string;
   duration?: string;
 
-  // Inferred requirements
-  needsFormFilling?: boolean;
-  needsDocumentValidation?: boolean;
-  needsPhotoCompliance?: boolean;
-  needsTravelItinerary?: boolean;
-
   // Additional context
   specificForms?: string[];
   requiredDocuments?: string[];
