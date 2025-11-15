@@ -437,8 +437,91 @@ export async function listBatchFiles(userId: string, batchId: number) {
   return files;
 }
 
-// R2 bucket structure:
+// ========================================
+// VISADOCS STORAGE HELPERS
+// ========================================
+
+/**
+ * Upload document/file to R2 (for VisaDocs)
+ * Alias for uploadBuffer with a more semantic name
+ */
+export async function uploadToR2(
+  key: string,
+  buffer: Buffer,
+  contentType: string = 'application/pdf'
+): Promise<void> {
+  await r2Client.send(
+    new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType,
+      CacheControl: 'public, max-age=31536000', // 1 year cache
+    })
+  );
+}
+
+/**
+ * Generate public R2 URL (for VisaDocs)
+ * Alias for getPublicUrl with a more semantic name
+ */
+export function generateR2Url(key: string): string {
+  return getPublicUrl(key);
+}
+
+/**
+ * Delete VisaDocs package files
+ */
+export async function deleteVisaPackageFiles(userId: string, packageId: number): Promise<void> {
+  const prefixes = [
+    `uploads/${userId}/${packageId}/documents/`,
+    `uploads/${userId}/${packageId}/photos/`,
+    `generated/${userId}/${packageId}/visa_photos/`,
+    `generated/${userId}/${packageId}/filled_forms/`,
+    `generated/${userId}/${packageId}/translations/`,
+  ];
+
+  for (const prefix of prefixes) {
+    try {
+      const listResponse = await r2Client.send(
+        new ListObjectsV2Command({
+          Bucket: BUCKET_NAME,
+          Prefix: prefix,
+        })
+      );
+
+      if (listResponse.Contents && listResponse.Contents.length > 0) {
+        await Promise.all(
+          listResponse.Contents.map((object) =>
+            r2Client.send(
+              new DeleteObjectCommand({
+                Bucket: BUCKET_NAME,
+                Key: object.Key,
+              })
+            )
+          )
+        );
+        console.log(`[R2] Deleted ${listResponse.Contents.length} files from ${prefix}`);
+      }
+    } catch (error) {
+      console.error(`[R2] Error deleting files from ${prefix}:`, error);
+    }
+  }
+}
+
+// ========================================
+// R2 BUCKET STRUCTURE
+// ========================================
+// HEADSHOTS:
 // /uploads/{userId}/{batchId}/{photoId}.jpg          - User uploaded photos (optimized, max 2048x2048)
 // /generated/{userId}/{batchId}/{headshotId}.jpg     - Generated headshots (full resolution)
 // /thumbnails/{userId}/{batchId}/{headshotId}.jpg    - Thumbnails for gallery (400x400)
 // /previews/{userId}/{batchId}/{headshotId}.jpg      - Preview images for web (800x800)
+
+// VISADOCS:
+// /uploads/{userId}/{packageId}/documents/*.pdf      - Uploaded documents (passport, certificates, etc.)
+// /uploads/{userId}/{packageId}/photos/*.jpg         - Selfies for visa photo generation
+// /generated/{userId}/{packageId}/visa_photos/*.jpg  - AI-generated visa photos
+// /generated/{userId}/{packageId}/filled_forms/*.pdf - Auto-filled forms
+// /generated/{userId}/{packageId}/translations/*.pdf - Translated documents
+// /knowledge_base/{country}/{visaType}/*.pdf         - Visa requirement PDFs for RAG

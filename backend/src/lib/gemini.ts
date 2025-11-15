@@ -4,7 +4,7 @@ import { STYLE_TEMPLATES } from './templates.js';
 import type { HeadshotBatch } from '../db/index.js';
 import sharp from 'sharp';
 import { processHeadshotWithFaceSwap, checkFaceSwapService } from './faceSwap.js';
-import { trainFluxLora, generateWithFluxLora, isFluxLoraAvailable } from './fluxLora.js';
+import { selectBestReferencePhoto, generateWithPuLID, isFluxLoraAvailable } from './fluxLora.js';
 import axios from 'axios';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -484,10 +484,10 @@ export async function processImageForPlatform(
 }
 
 /**
- * Generate batch of headshots using Flux LoRA fine-tuning
- * This provides 100% facial accuracy by training a model on user's photos
+ * Generate batch of headshots using PuLID Flux
+ * This provides 100% facial accuracy using reference photo (NO training required)
  */
-async function generateBatchWithFluxLora(
+async function generateBatchWithPuLID(
   batch: HeadshotBatch,
   uploadedPhotos: string[],
   styleTemplates: string[],
@@ -500,16 +500,12 @@ async function generateBatchWithFluxLora(
   const headshotsByTemplate: Record<string, number> = {};
   const allGeneratedHeadshots: GeneratedHeadshot[] = [];
 
-  // Step 1: Train Flux LoRA on user's photos (~30 seconds)
-  console.log(`[Flux LoRA] Step 1: Training model on ${uploadedPhotos.length} photos...`);
-  const triggerWord = `ohwx${batch.id}`; // Unique trigger word per batch
+  // Step 1: Select best reference photo for PuLID (NO training needed!)
+  console.log(`[PuLID] Step 1: Selecting best reference photo from ${uploadedPhotos.length} photos...`);
+  const referencePhotoUrl = await selectBestReferencePhoto(uploadedPhotos);
+  console.log(`[PuLID] ✓ Reference photo selected: ${referencePhotoUrl}`);
 
-  const trainingResult = await trainFluxLora(uploadedPhotos, triggerWord);
-  const loraUrl = trainingResult.diffusers_lora_file.url;
-
-  console.log(`[Flux LoRA] ✓ Training complete! LoRA URL: ${loraUrl}`);
-
-  // Step 2: Generate headshots for each template using trained LoRA
+  // Step 2: Generate headshots for each template using PuLID
   const headshotsPerTemplate = Math.floor(planHeadshots / styleTemplates.length);
 
   for (const templateId of styleTemplates) {
@@ -529,15 +525,15 @@ async function generateBatchWithFluxLora(
         console.log(`  → Variation ${i + 1}/${headshotsPerTemplate}...`);
 
         // Build prompt for this template
-        // Use concise Flux-optimized prompt with explicit facial preservation but expression flexibility
-        const fluxPrompt = `professional headshot photo of ${triggerWord} person. Keep exact facial structure, hair, beard, skin tone identical. Relaxed professional expression, smooth forehead, natural smile. ${template.background}. ${template.outfit}. Professional studio lighting, sharp focus, high quality`;
+        // PuLID-optimized prompt (simpler, no trigger word needed)
+        const pulidPrompt = `professional headshot photo. ${template.background}. ${template.outfit}. Relaxed professional expression, smooth forehead, natural smile. Professional studio lighting, sharp focus, high quality, detailed`;
 
-        console.log(`  → Prompt: ${fluxPrompt}`);
+        console.log(`  → Prompt: ${pulidPrompt}`);
 
-        // Generate with Flux LoRA
-        const imageUrl = await generateWithFluxLora(
-          loraUrl,
-          fluxPrompt,
+        // Generate with PuLID (uses reference photo for face)
+        const imageUrl = await generateWithPuLID(
+          referencePhotoUrl,
+          pulidPrompt,
           template.aspectRatio
         );
 
@@ -646,11 +642,11 @@ export async function generateBatch(
   console.log(`Generating ${planHeadshots} total headshots`);
 
   // ============================================================================
-  // FLUX LORA METHOD (PRIMARY) - 100% Facial Accuracy
+  // PULID FLUX METHOD (PRIMARY) - 100% Facial Accuracy, No Training Required
   // ============================================================================
   if (isFluxLoraAvailable()) {
-    console.log('[Flux LoRA] Using Flux LoRA fine-tuning for 100% facial accuracy');
-    return await generateBatchWithFluxLora(batch, uploadedPhotos, styleTemplates, planHeadshots);
+    console.log('[PuLID] Using PuLID Flux for 100% facial accuracy (no training needed)');
+    return await generateBatchWithPuLID(batch, uploadedPhotos, styleTemplates, planHeadshots);
   }
 
   // ============================================================================

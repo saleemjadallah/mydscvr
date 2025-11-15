@@ -115,12 +115,26 @@ async function createAndUploadZip(imageUrls: string[]): Promise<string> {
 }
 
 /**
- * Train a Flux LoRA model on user's uploaded photos
- * Takes ~30 seconds with Turbo trainer
+ * Select best reference photo for PuLID from uploaded photos
+ * PuLID doesn't need training - just one good reference photo!
  *
  * @param imageUrls - Array of 12-20 user photo URLs from R2
- * @param triggerWord - Unique trigger word (e.g., "ohwx person")
- * @returns Training result with LoRA file URL
+ * @returns URL of best reference photo
+ */
+export async function selectBestReferencePhoto(imageUrls: string[]): Promise<string> {
+  console.log(`[PuLID] Selecting best reference photo from ${imageUrls.length} images...`);
+
+  // For now, use the first photo (we can add face quality analysis later)
+  // TODO: Could add face detection scoring to pick the best quality photo
+  const bestPhoto = imageUrls[0];
+
+  console.log(`[PuLID] Selected reference photo: ${bestPhoto}`);
+  return bestPhoto;
+}
+
+/**
+ * DEPRECATED: Train a Flux LoRA model on user's uploaded photos
+ * NOTE: We now use PuLID instead which doesn't require training
  */
 export async function trainFluxLora(
   imageUrls: string[],
@@ -193,12 +207,65 @@ function mapAspectRatioToFluxSize(aspectRatio: string): string {
 }
 
 /**
- * Generate headshot using trained Flux LoRA model
+ * Generate headshot using PuLID Flux (NO training required!)
  *
- * @param loraUrl - URL of trained LoRA file from training step
- * @param prompt - Generation prompt (e.g., "ohwx person, professional LinkedIn headshot")
+ * @param referencePhotoUrl - URL of user's best reference photo
+ * @param prompt - Generation prompt (e.g., "professional LinkedIn headshot")
  * @param aspectRatio - Image aspect ratio (e.g., "1:1", "4:5")
  * @returns Generated image URL
+ */
+export async function generateWithPuLID(
+  referencePhotoUrl: string,
+  prompt: string,
+  aspectRatio: string = '1:1'
+): Promise<string> {
+  if (!FAL_API_KEY) {
+    throw new Error('FAL_API_KEY not configured');
+  }
+
+  console.log(`[PuLID] Generating image...`);
+  console.log(`[PuLID] Prompt: ${prompt}`);
+  console.log(`[PuLID] Reference photo: ${referencePhotoUrl}`);
+
+  // Map our aspect ratio to Flux's preset sizes
+  const fluxImageSize = mapAspectRatioToFluxSize(aspectRatio);
+
+  const generationInput = {
+    prompt: prompt,
+    reference_image_url: referencePhotoUrl, // User's reference photo
+    image_size: fluxImageSize,
+    num_inference_steps: 20, // Default for PuLID
+    guidance_scale: 4,       // Default for PuLID
+    id_weight: 1.0,          // Maximum face preservation
+    true_cfg: 1,
+    start_step: 0,
+    enable_safety_checker: true,
+    // Negative prompt to ensure professional output
+    negative_prompt: 'low quality, blurry, distorted, deformed, ugly, bad anatomy, extra limbs',
+  };
+
+  console.log(`[PuLID] Generation input:`, JSON.stringify(generationInput, null, 2));
+
+  try {
+    const result = await fal.subscribe('fal-ai/flux-pulid', {
+      input: generationInput,
+      logs: false,
+    }) as GenerationResult;
+
+    const imageUrl = result.images[0].url;
+    console.log(`[PuLID] ✓ Generated image: ${imageUrl.substring(0, 60)}...`);
+
+    return imageUrl;
+  } catch (error: any) {
+    console.error('[PuLID] Generation failed:', error.message);
+    console.error('[PuLID] Generation error details:', JSON.stringify(error.body || error, null, 2));
+    throw error;
+  }
+}
+
+/**
+ * DEPRECATED: Generate headshot using trained Flux LoRA model
+ * NOTE: We now use PuLID instead
  */
 export async function generateWithFluxLora(
   loraUrl: string,

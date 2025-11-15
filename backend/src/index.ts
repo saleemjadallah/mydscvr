@@ -9,6 +9,7 @@ import multer from 'multer';
 import crypto from 'crypto';
 import { setupAuth, requireAuth } from './lib/auth.js';
 import batchesRouter from './routes/batches.js';
+import visadocsRouter from './routes/visadocs/index.js';
 import { ensureTables } from './db/ensureTables.js';
 import { uploadBuffer, optimizeUploadedImage } from './lib/storage.js';
 
@@ -160,9 +161,19 @@ app.post('/api/upload', requireAuth, upload.array('photos', 20), async (req: any
   }
 });
 
-// Batch routes (keeping for backward compatibility)
+// ========================================
+// HEADSHOT ROUTES
+// ========================================
 app.use('/api/batches', batchesRouter);
 
+// ========================================
+// VISADOCS ROUTES
+// ========================================
+app.use('/api/visadocs', visadocsRouter);
+
+// ========================================
+// PAYMENT ROUTES
+// ========================================
 // Stripe checkout routes (TODO - implement Stripe integration)
 app.post('/api/checkout/create-session', requireAuth, async (_req, res) => {
   res.json({ message: 'Create checkout session - TODO' });
