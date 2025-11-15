@@ -138,21 +138,21 @@ export async function trainFluxLora(
   // Step 1: Create ZIP file and upload to fal.ai storage
   const zipUrl = await createAndUploadZip(imageUrls);
 
-  // Step 2: Start training with ZIP URL
+  // Step 2: Start training with ZIP URL using PORTRAIT-OPTIMIZED trainer
   const trainingInput = {
     images_data_url: zipUrl, // URL to ZIP file
     trigger_word: triggerWord,
-    // Fast preset optimized for portraits/headshots
-    steps_per_image: 27, // Fast preset for people (default: 100 for high quality)
-    lora_rank: 16,       // Good balance of quality and file size
-    optimizer: 'adamw8bit',
-    is_style: false,     // FALSE = train on person/face only, not background/style
+    // Portrait-optimized settings
+    steps: 2500,              // Default for high-quality portraits (cost: ~$6)
+    learning_rate: 0.00009,   // Default learning rate for portraits
+    subject_crop: true,       // Auto-crop to focus on face (critical for headshots)
+    multiresolution: true,    // Better at different image sizes
   };
 
-  console.log(`[FluxLoRA] Starting training with ZIP URL...`);
+  console.log(`[FluxLoRA] Starting PORTRAIT training with ZIP URL (this takes ~15 min)...`);
 
   try {
-    const result = await fal.subscribe('fal-ai/flux-lora-fast-training', {
+    const result = await fal.subscribe('fal-ai/flux-lora-portrait-trainer', {
       input: trainingInput,
       logs: true,
       onQueueUpdate: (update) => {
