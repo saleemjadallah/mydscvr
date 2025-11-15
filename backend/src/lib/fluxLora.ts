@@ -57,20 +57,24 @@ export async function trainFluxLora(
 
   console.log(`[FluxLoRA] Training model on ${imageUrls.length} images...`);
   console.log(`[FluxLoRA] Trigger word: "${triggerWord}"`);
+  console.log(`[FluxLoRA] Sample image URLs:`, imageUrls.slice(0, 3));
 
   const startTime = Date.now();
 
+  const trainingInput = {
+    images_data_url: imageUrls.map(url => ({ image_url: url })),
+    trigger_word: triggerWord,
+    // Fast preset optimized for portraits/headshots
+    steps_per_image: 27, // Fast preset for people (default: 100 for high quality)
+    lora_rank: 16,       // Good balance of quality and file size
+    optimizer: 'adamw8bit',
+  };
+
+  console.log(`[FluxLoRA] Training input:`, JSON.stringify(trainingInput, null, 2));
+
   try {
     const result = await fal.subscribe('fal-ai/flux-lora-fast-training', {
-      input: {
-        images_data_url: imageUrls.map(url => ({ image_url: url })),
-        trigger_word: triggerWord,
-        // Fast preset optimized for portraits/headshots
-        steps_per_image: 27, // Fast preset for people (default: 100 for high quality)
-        lora_rank: 16,       // Good balance of quality and file size
-        optimizer: 'adamw8bit',
-
-      },
+      input: trainingInput,
       logs: true,
       onQueueUpdate: (update) => {
         if (update.status === 'IN_PROGRESS') {
@@ -86,6 +90,7 @@ export async function trainFluxLora(
     return result;
   } catch (error: any) {
     console.error('[FluxLoRA] Training failed:', error.message);
+    console.error('[FluxLoRA] Error details:', JSON.stringify(error.body || error, null, 2));
     throw error;
   }
 }

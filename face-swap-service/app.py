@@ -60,14 +60,32 @@ def initialize_models():
         # Download inswapper model if not exists
         if not model_path.exists():
             logger.info("Downloading face swapper model...")
-            download_url = "https://github.com/facefusion/facefusion-assets/releases/download/models/inswapper_128.onnx"
-            response = requests.get(download_url, stream=True)
-            response.raise_for_status()
+            # Try multiple mirror URLs for the inswapper model (November 2025 working mirrors)
+            download_urls = [
+                "https://github.com/facefusion/facefusion-assets/releases/download/models/inswapper_128.onnx",
+                "https://huggingface.co/ezioruan/inswapper_128.onnx/resolve/main/inswapper_128.onnx",
+                "https://huggingface.co/CountFloyd/deepfake/resolve/main/inswapper_128.onnx",
+            ]
 
-            with open(model_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            logger.info("Face swapper model downloaded successfully")
+            downloaded = False
+            for download_url in download_urls:
+                try:
+                    logger.info(f"Trying: {download_url}")
+                    response = requests.get(download_url, stream=True, timeout=300)
+                    response.raise_for_status()
+
+                    with open(model_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    logger.info("Face swapper model downloaded successfully")
+                    downloaded = True
+                    break
+                except Exception as e:
+                    logger.warning(f"Failed to download from {download_url}: {e}")
+                    continue
+
+            if not downloaded:
+                raise Exception("Failed to download inswapper model from all mirrors")
 
         # Load swapper model
         from insightface.model_zoo import get_model
@@ -241,6 +259,21 @@ def swap_face(target_image: np.ndarray, source_image: np.ndarray) -> Optional[np
         logger.error(f"Error during face swap: {e}")
         return None
 
+
+# ============================================================================
+# INITIALIZE MODELS ON IMPORT (for Gunicorn)
+# ============================================================================
+
+# Initialize models when module is imported by Gunicorn
+# This ensures models are loaded even when using WSGI servers
+logger.info("=" * 60)
+logger.info("Face-Swapping Microservice Starting")
+logger.info("=" * 60)
+
+if not initialize_models():
+    logger.error("WARNING: Models failed to initialize. Service will report unhealthy.")
+else:
+    logger.info("✓ Models loaded and ready for requests")
 
 # ============================================================================
 # API ENDPOINTS
