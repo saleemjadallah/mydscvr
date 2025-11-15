@@ -126,12 +126,13 @@ export async function swapFace(
     try {
       console.log('[FaceSwap] Using Replicate API (high quality)...');
 
+      // Using lucataco/faceswap - well-maintained model with face enhancement
       const output = await replicate.run(
-        "yan-ops/face_swap:d5900f9ebed33e7ae6534b097f1151646b1059b2258c58ea950d33778f6d109a",
+        "lucataco/faceswap:9a4863b0e0720e960bad8d7b68800261b59eb8d780e8a41c3e0b6d0a1e0b2ea5",
         {
           input: {
             target_image: targetImageUrl,
-            swap_image: sourceImageUrl,
+            source_image: sourceImageUrl,
           }
         }
       );
