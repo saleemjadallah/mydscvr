@@ -111,7 +111,15 @@ async function createAndUploadZip(imageUrls: string[]): Promise<string> {
       },
     });
 
-    const zipUrl = uploadResponse.data.url;
+    console.log(`[FluxLoRA] Upload response:`, JSON.stringify(uploadResponse.data, null, 2));
+
+    // Try different possible response formats
+    const zipUrl = uploadResponse.data.url || uploadResponse.data.file_url || uploadResponse.data;
+
+    if (!zipUrl || typeof zipUrl !== 'string') {
+      throw new Error(`Invalid upload response - no URL found. Response: ${JSON.stringify(uploadResponse.data)}`);
+    }
+
     console.log(`[FluxLoRA] ✓ ZIP uploaded: ${zipUrl}`);
     return zipUrl;
   } catch (error: any) {
