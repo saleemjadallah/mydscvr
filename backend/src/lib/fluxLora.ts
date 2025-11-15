@@ -146,6 +146,7 @@ export async function trainFluxLora(
     steps_per_image: 27, // Fast preset for people (default: 100 for high quality)
     lora_rank: 16,       // Good balance of quality and file size
     optimizer: 'adamw8bit',
+    is_style: false,     // FALSE = train on person/face only, not background/style
   };
 
   console.log(`[FluxLoRA] Starting training with ZIP URL...`);

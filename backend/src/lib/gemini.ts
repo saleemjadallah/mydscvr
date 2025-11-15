@@ -529,12 +529,15 @@ async function generateBatchWithFluxLora(
         console.log(`  → Variation ${i + 1}/${headshotsPerTemplate}...`);
 
         // Build prompt for this template
-        const prompt = `${triggerWord} person, ${template.fluxPrompt || template.geminiPrompt}`;
+        // Use concise Flux-optimized prompt (not the verbose Gemini prompt)
+        const fluxPrompt = `${triggerWord} person, professional headshot photo. ${template.background}. ${template.outfit}. Studio lighting, sharp focus, high quality, professional photography`;
+
+        console.log(`  → Prompt: ${fluxPrompt}`);
 
         // Generate with Flux LoRA
         const imageUrl = await generateWithFluxLora(
           loraUrl,
-          prompt,
+          fluxPrompt,
           template.aspectRatio
         );
 
