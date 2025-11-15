@@ -6,15 +6,17 @@
 import Replicate from 'replicate';
 import axios from 'axios';
 
-const REPLICATE_API_KEY = process.env.REPLICATE_API_KEY;
-const USE_REPLICATE = !!REPLICATE_API_KEY; // Use Replicate if API key is set
+// Replicate uses REPLICATE_API_TOKEN environment variable by default
+// But we'll also check REPLICATE_API_KEY for backward compatibility
+const REPLICATE_TOKEN = process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY;
+const USE_REPLICATE = !!REPLICATE_TOKEN; // Use Replicate if API token is set
 
-// Fallback to self-hosted service if no Replicate key
+// Fallback to self-hosted service if no Replicate token
 const FACE_SWAP_SERVICE_URL = process.env.FACE_SWAP_SERVICE_URL || 'http://localhost:5000';
 
 // Initialize Replicate client
-const replicate = REPLICATE_API_KEY ? new Replicate({
-  auth: REPLICATE_API_KEY,
+const replicate = REPLICATE_TOKEN ? new Replicate({
+  auth: REPLICATE_TOKEN,
 }) : null;
 
 interface PhotoAnalysis {
@@ -128,7 +130,7 @@ export async function swapFace(
 
       // Using lucataco/faceswap - well-maintained model with face enhancement
       const output = await replicate.run(
-        "lucataco/faceswap:9a4863b0e0720e960bad8d7b68800261b59eb8d780e8a41c3e0b6d0a1e0b2ea5",
+        "lucataco/faceswap",
         {
           input: {
             target_image: targetImageUrl,
