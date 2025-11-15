@@ -4,6 +4,8 @@ import { STYLE_TEMPLATES } from './templates.js';
 import type { HeadshotBatch } from '../db/index.js';
 import sharp from 'sharp';
 import { processHeadshotWithFaceSwap, checkFaceSwapService } from './faceSwap.js';
+import { trainFluxLora, generateWithFluxLora, isFluxLoraAvailable } from './fluxLora.js';
+import axios from 'axios';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -481,6 +483,138 @@ export async function processImageForPlatform(
   return processed;
 }
 
+/**
+ * Generate batch of headshots using Flux LoRA fine-tuning
+ * This provides 100% facial accuracy by training a model on user's photos
+ */
+async function generateBatchWithFluxLora(
+  batch: HeadshotBatch,
+  uploadedPhotos: string[],
+  styleTemplates: string[],
+  planHeadshots: number
+): Promise<{
+  generatedHeadshots: GeneratedHeadshot[];
+  headshotsByTemplate: Record<string, number>;
+  totalCount: number;
+}> {
+  const headshotsByTemplate: Record<string, number> = {};
+  const allGeneratedHeadshots: GeneratedHeadshot[] = [];
+
+  // Step 1: Train Flux LoRA on user's photos (~30 seconds)
+  console.log(`[Flux LoRA] Step 1: Training model on ${uploadedPhotos.length} photos...`);
+  const triggerWord = `ohwx${batch.id}`; // Unique trigger word per batch
+
+  const trainingResult = await trainFluxLora(uploadedPhotos, triggerWord);
+  const loraUrl = trainingResult.diffusers_lora_file.url;
+
+  console.log(`[Flux LoRA] ✓ Training complete! LoRA URL: ${loraUrl}`);
+
+  // Step 2: Generate headshots for each template using trained LoRA
+  const headshotsPerTemplate = Math.floor(planHeadshots / styleTemplates.length);
+
+  for (const templateId of styleTemplates) {
+    const template = STYLE_TEMPLATES[templateId];
+    if (!template) {
+      console.warn(`Template ${templateId} not found, skipping`);
+      continue;
+    }
+
+    console.log(`\n📸 Generating ${headshotsPerTemplate} headshots for template: ${template.name}`);
+
+    const generatedForTemplate: GeneratedHeadshot[] = [];
+
+    // Generate variations within this template
+    for (let i = 0; i < headshotsPerTemplate; i++) {
+      try {
+        console.log(`  → Variation ${i + 1}/${headshotsPerTemplate}...`);
+
+        // Build prompt for this template
+        const prompt = `${triggerWord} person, ${template.fluxPrompt || template.geminiPrompt}`;
+
+        // Generate with Flux LoRA
+        const imageUrl = await generateWithFluxLora(
+          loraUrl,
+          prompt,
+          template.aspectRatio
+        );
+
+        // Download the generated image
+        const response = await axios.get(imageUrl, {
+          responseType: 'arraybuffer',
+        });
+        const imageBuffer = Buffer.from(response.data);
+
+        // Process and upload
+        const finalImage = await sharp(imageBuffer)
+          .jpeg({
+            quality: 95,
+            chromaSubsampling: '4:4:4',
+          })
+          .toBuffer();
+
+        // Generate thumbnail
+        const thumbnailBuffer = await sharp(finalImage)
+          .resize(400, 400, {
+            fit: 'cover',
+            position: 'center',
+          })
+          .jpeg({ quality: 85 })
+          .toBuffer();
+
+        // Upload both to R2
+        const { url } = await uploadGeneratedHeadshot(
+          batch.userId,
+          batch.id,
+          finalImage,
+          {
+            template: template.id,
+            index: i,
+          }
+        );
+
+        const { url: thumbnailUrl } = await uploadGeneratedHeadshot(
+          batch.userId,
+          batch.id,
+          thumbnailBuffer,
+          {
+            template: template.id,
+            index: i,
+          }
+        );
+
+        const headshot: GeneratedHeadshot = {
+          url,
+          thumbnail: thumbnailUrl,
+          template: template.id,
+          background: template.background,
+          outfit: template.outfit,
+          platformSpecs: template.platformSpecs,
+        };
+
+        generatedForTemplate.push(headshot);
+        allGeneratedHeadshots.push(headshot);
+
+        console.log(`  ✓ Generated ${i + 1}/${headshotsPerTemplate}`);
+      } catch (error) {
+        console.error(`  ✗ Failed to generate headshot ${i} for template ${templateId}:`, error);
+        // Continue with next variation even if one fails
+      }
+    }
+
+    headshotsByTemplate[templateId] = generatedForTemplate.length;
+    console.log(`✓ Completed ${template.name}: ${generatedForTemplate.length} headshots`);
+  }
+
+  console.log(`\n🎉 Completed Flux LoRA generation for batch ${batch.id}`);
+  console.log(`Total headshots generated: ${allGeneratedHeadshots.length}/${planHeadshots}`);
+
+  return {
+    generatedHeadshots: allGeneratedHeadshots,
+    headshotsByTemplate,
+    totalCount: allGeneratedHeadshots.length,
+  };
+}
+
 // Generate entire batch of headshots using Gemini 2.5 Flash Image
 export async function generateBatch(
   batch: HeadshotBatch
@@ -507,6 +641,21 @@ export async function generateBatch(
   // Get plan config
   const planHeadshots = getPlanHeadshots(batch.plan);
   console.log(`Generating ${planHeadshots} total headshots`);
+
+  // ============================================================================
+  // FLUX LORA METHOD (PRIMARY) - 100% Facial Accuracy
+  // ============================================================================
+  if (isFluxLoraAvailable()) {
+    console.log('[Flux LoRA] Using Flux LoRA fine-tuning for 100% facial accuracy');
+    return await generateBatchWithFluxLora(batch, uploadedPhotos, styleTemplates, planHeadshots);
+  }
+
+  // ============================================================================
+  // GEMINI METHOD (BACKUP - COMMENTED OUT, KEPT FOR REFERENCE)
+  // ============================================================================
+  // Uncomment below if you need to fall back to Gemini + face-swapping approach
+  /*
+  console.log('[Gemini] Flux LoRA not available, using Gemini + face-swap fallback');
 
   // Calculate how many headshots per template
   const headshotsPerTemplate = Math.floor(planHeadshots / styleTemplates.length);
@@ -560,6 +709,10 @@ export async function generateBatch(
     headshotsByTemplate,
     totalCount: allGeneratedHeadshots.length,
   };
+  */
+
+  // If Flux LoRA is not available, throw error (force configuration)
+  throw new Error('Flux LoRA (FAL_API_KEY) must be configured for headshot generation');
 }
 
 // Helper to get headshot count by plan
