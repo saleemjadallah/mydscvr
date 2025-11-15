@@ -7,6 +7,7 @@ import * as fal from '@fal-ai/serverless-client';
 import archiver from 'archiver';
 import axios from 'axios';
 import FormData from 'form-data';
+import sharp from 'sharp';
 
 const FAL_API_KEY = process.env.FAL_API_KEY;
 
@@ -61,19 +62,29 @@ async function createAndUploadZip(imageUrls: string[]): Promise<string> {
     archive.on('error', reject);
   });
 
-  // Download each image and add to ZIP
+  // Download each image, compress, and add to ZIP
   for (let i = 0; i < imageUrls.length; i++) {
     const imageUrl = imageUrls[i];
     try {
-      console.log(`[FluxLoRA]   Downloading image ${i + 1}/${imageUrls.length}...`);
+      console.log(`[FluxLoRA]   Processing image ${i + 1}/${imageUrls.length}...`);
       const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
-      const imageBuffer = Buffer.from(response.data);
+      const originalBuffer = Buffer.from(response.data);
+
+      // Compress image to reduce ZIP size (max 1024px, 85% quality)
+      // Training still works great with 1024px images
+      const compressedBuffer = await sharp(originalBuffer)
+        .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 85 })
+        .toBuffer();
+
+      const savedKB = ((originalBuffer.length - compressedBuffer.length) / 1024).toFixed(1);
+      console.log(`[FluxLoRA]     Compressed: ${(originalBuffer.length / 1024).toFixed(1)}KB → ${(compressedBuffer.length / 1024).toFixed(1)}KB (saved ${savedKB}KB)`);
 
       // Add to ZIP with simple numeric filename
-      archive.append(imageBuffer, { name: `${i}.jpg` });
+      archive.append(compressedBuffer, { name: `${i}.jpg` });
     } catch (error: any) {
-      console.error(`[FluxLoRA] Failed to download image ${i}: ${error.message}`);
-      throw new Error(`Failed to download training image ${i}: ${error.message}`);
+      console.error(`[FluxLoRA] Failed to process image ${i}: ${error.message}`);
+      throw new Error(`Failed to process training image ${i}: ${error.message}`);
     }
   }
 
