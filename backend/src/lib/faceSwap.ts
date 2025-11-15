@@ -128,14 +128,17 @@ export async function swapFace(
     try {
       console.log('[FaceSwap] Using Replicate API (high quality)...');
 
-      // Using codeplugtech/face-swap - verified working model on Replicate
-      // Cost: ~$0.0028 per swap, Duration: ~29s (CPU)
+      // Using easel/advanced-face-swap - GPU-powered (H100) for high quality
+      // Cost: ~$0.05 per swap, Duration: ~6s (GPU)
+      // Features: 2x upscale, detail enhancement, commercial use permitted
       const output = await replicate.run(
-        "codeplugtech/face-swap",
+        "easel/advanced-face-swap",
         {
           input: {
-            input_image: targetImageUrl,  // Target image (Gemini generated)
+            target_image: targetImageUrl,  // Target image (Gemini generated)
             swap_image: sourceImageUrl,    // Source face (user photo)
+            upscale: true,                 // Apply 2x upscale for higher resolution
+            detailer: true,                // Enhance image details
           }
         }
       );
