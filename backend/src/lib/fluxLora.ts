@@ -4,6 +4,9 @@
  */
 
 import * as fal from '@fal-ai/serverless-client';
+import archiver from 'archiver';
+import axios from 'axios';
+import FormData from 'form-data';
 
 const FAL_API_KEY = process.env.FAL_API_KEY;
 
@@ -40,6 +43,73 @@ interface GenerationResult {
 }
 
 /**
+ * Create a ZIP file from image URLs and upload to fal.ai storage
+ * @param imageUrls - Array of publicly accessible image URLs
+ * @returns URL to the uploaded ZIP file
+ */
+async function createAndUploadZip(imageUrls: string[]): Promise<string> {
+  console.log(`[FluxLoRA] Creating ZIP from ${imageUrls.length} images...`);
+
+  // Create ZIP archive in memory
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  const chunks: Buffer[] = [];
+
+  archive.on('data', (chunk) => chunks.push(chunk));
+
+  const zipPromise = new Promise<Buffer>((resolve, reject) => {
+    archive.on('end', () => resolve(Buffer.concat(chunks)));
+    archive.on('error', reject);
+  });
+
+  // Download each image and add to ZIP
+  for (let i = 0; i < imageUrls.length; i++) {
+    const imageUrl = imageUrls[i];
+    try {
+      console.log(`[FluxLoRA]   Downloading image ${i + 1}/${imageUrls.length}...`);
+      const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+      const imageBuffer = Buffer.from(response.data);
+
+      // Add to ZIP with simple numeric filename
+      archive.append(imageBuffer, { name: `${i}.jpg` });
+    } catch (error: any) {
+      console.error(`[FluxLoRA] Failed to download image ${i}: ${error.message}`);
+      throw new Error(`Failed to download training image ${i}: ${error.message}`);
+    }
+  }
+
+  // Finalize the archive
+  await archive.finalize();
+  const zipBuffer = await zipPromise;
+
+  console.log(`[FluxLoRA] ZIP created (${(zipBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
+
+  // Upload ZIP to fal.ai storage
+  console.log(`[FluxLoRA] Uploading ZIP to fal.ai storage...`);
+
+  const formData = new FormData();
+  formData.append('file', zipBuffer, {
+    filename: 'training-images.zip',
+    contentType: 'application/zip',
+  });
+
+  try {
+    const uploadResponse = await axios.post('https://queue.fal.run/fal-ai/flux-lora-fast-training/files', formData, {
+      headers: {
+        ...formData.getHeaders(),
+        'Authorization': `Key ${FAL_API_KEY}`,
+      },
+    });
+
+    const zipUrl = uploadResponse.data.url;
+    console.log(`[FluxLoRA] ✓ ZIP uploaded: ${zipUrl}`);
+    return zipUrl;
+  } catch (error: any) {
+    console.error('[FluxLoRA] Failed to upload ZIP:', error.response?.data || error.message);
+    throw new Error('Failed to upload training images ZIP to fal.ai');
+  }
+}
+
+/**
  * Train a Flux LoRA model on user's uploaded photos
  * Takes ~30 seconds with Turbo trainer
  *
@@ -57,12 +127,15 @@ export async function trainFluxLora(
 
   console.log(`[FluxLoRA] Training model on ${imageUrls.length} images...`);
   console.log(`[FluxLoRA] Trigger word: "${triggerWord}"`);
-  console.log(`[FluxLoRA] Sample image URLs:`, imageUrls.slice(0, 3));
 
   const startTime = Date.now();
 
+  // Step 1: Create ZIP file and upload to fal.ai storage
+  const zipUrl = await createAndUploadZip(imageUrls);
+
+  // Step 2: Start training with ZIP URL
   const trainingInput = {
-    images_data_url: imageUrls.join('\n'), // String with newline-separated URLs
+    images_data_url: zipUrl, // URL to ZIP file
     trigger_word: triggerWord,
     // Fast preset optimized for portraits/headshots
     steps_per_image: 27, // Fast preset for people (default: 100 for high quality)
@@ -70,7 +143,7 @@ export async function trainFluxLora(
     optimizer: 'adamw8bit',
   };
 
-  console.log(`[FluxLoRA] Training input:`, JSON.stringify(trainingInput, null, 2));
+  console.log(`[FluxLoRA] Starting training with ZIP URL...`);
 
   try {
     const result = await fal.subscribe('fal-ai/flux-lora-fast-training', {
