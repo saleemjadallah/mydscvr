@@ -221,7 +221,7 @@ export async function generateWithFluxLora(
     loras: [
       {
         path: loraUrl,
-        scale: 1.0, // Balanced LoRA strength - preserves face structure, allows expression changes
+        scale: 1.2, // Strong LoRA to preserve facial features, hair, beard
       }
     ],
     image_size: fluxImageSize, // Use Flux preset instead of aspect ratio
