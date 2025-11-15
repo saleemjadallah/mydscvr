@@ -62,7 +62,7 @@ export async function trainFluxLora(
   const startTime = Date.now();
 
   const trainingInput = {
-    images_data_url: imageUrls.map(url => ({ image_url: url })),
+    images_data_url: imageUrls.join('\n'), // String with newline-separated URLs
     trigger_word: triggerWord,
     // Fast preset optimized for portraits/headshots
     steps_per_image: 27, // Fast preset for people (default: 100 for high quality)
