@@ -7,6 +7,10 @@ import {
   getSuggestedQuestions,
   JeffreyMessage,
 } from '../../services/jeffrey.js';
+import {
+  createVisaWorkflow,
+  generateWorkflowSummary,
+} from '../../services/visa-workflow.js';
 
 const router = Router();
 
@@ -304,6 +308,66 @@ router.delete('/sessions/:id', requireAuth, async (req: any, res: any) => {
     res.status(500).json({
       success: false,
       error: 'Failed to delete chat session',
+    });
+  }
+});
+
+// POST /api/visadocs/chat/analyze-workflow - Analyze conversation and create visa workflow
+router.post('/analyze-workflow', requireAuth, async (req: any, res: any) => {
+  try {
+    const { sessionId } = req.body;
+    const userId = req.user!.id;
+
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Session ID is required',
+      });
+    }
+
+    // Get the chat session
+    const [session] = await db
+      .select()
+      .from(chatSessions)
+      .where(
+        and(
+          eq(chatSessions.id, parseInt(sessionId)),
+          eq(chatSessions.userId, userId)
+        )
+      );
+
+    if (!session || !session.messages) {
+      return res.status(404).json({
+        success: false,
+        error: 'Chat session not found',
+      });
+    }
+
+    // Create visa workflow from conversation
+    const workflow = await createVisaWorkflow(session.messages as JeffreyMessage[]);
+
+    if (!workflow) {
+      return res.status(400).json({
+        success: false,
+        error: 'Unable to extract visa requirements. Please provide more details about your visa type and destination country.',
+      });
+    }
+
+    // Generate friendly summary
+    const summary = generateWorkflowSummary(workflow);
+
+    res.json({
+      success: true,
+      data: {
+        workflow,
+        summary,
+      },
+    });
+  } catch (error) {
+    console.error('Error analyzing workflow:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to analyze visa workflow',
     });
   }
 });
