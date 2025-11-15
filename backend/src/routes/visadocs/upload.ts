@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { db } from '../../db';
-import { visaPackages } from '../../db/schema';
+import { db, visaPackages } from '../../db/index.js';
 import { eq, and } from 'drizzle-orm';
-import { uploadToR2, generateR2Url } from '../../lib/storage';
+import { uploadToR2, generateR2Url } from '../../lib/storage.js';
 import crypto from 'crypto';
 
 const router = Router();

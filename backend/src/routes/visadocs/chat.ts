@@ -1,13 +1,12 @@
 import { Router } from 'express';
-import { db } from '../../db';
-import { chatSessions } from '../../db/schema';
+import { db, chatSessions } from '../../db/index.js';
 import { eq, and, desc } from 'drizzle-orm';
 import {
   askJeffrey,
   askJeffreyQuick,
   getSuggestedQuestions,
   JeffreyMessage,
-} from '../../services/jeffrey';
+} from '../../services/jeffrey.js';
 
 const router = Router();
 

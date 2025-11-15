@@ -1,6 +1,5 @@
 import { Router } from 'express';
-import { db } from '../../db';
-import { visaPackages } from '../../db/schema';
+import { db, visaPackages } from '../../db/index.js';
 import { eq, and, desc } from 'drizzle-orm';
 
 const router = Router();
