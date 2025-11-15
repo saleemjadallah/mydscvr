@@ -192,25 +192,31 @@ export async function generateWithFluxLora(
 
   console.log(`[FluxLoRA] Generating image...`);
   console.log(`[FluxLoRA] Prompt: ${prompt}`);
+  console.log(`[FluxLoRA] Aspect ratio: ${aspectRatio}`);
+  console.log(`[FluxLoRA] LoRA URL: ${loraUrl}`);
+
+  const generationInput = {
+    prompt: prompt,
+    loras: [
+      {
+        path: loraUrl,
+        scale: 1.0, // Full strength of LoRA
+      }
+    ],
+    image_size: aspectRatio,
+    num_inference_steps: 28, // Good quality/speed balance
+    guidance_scale: 3.5,     // Recommended for Flux
+    num_images: 1,
+    enable_safety_checker: true,
+    output_format: 'jpeg',
+    seed: Math.floor(Math.random() * 1000000),
+  };
+
+  console.log(`[FluxLoRA] Generation input:`, JSON.stringify(generationInput, null, 2));
 
   try {
     const result = await fal.subscribe('fal-ai/flux-lora', {
-      input: {
-        prompt: prompt,
-        loras: [
-          {
-            path: loraUrl,
-            scale: 1.0, // Full strength of LoRA
-          }
-        ],
-        image_size: aspectRatio,
-        num_inference_steps: 28, // Good quality/speed balance
-        guidance_scale: 3.5,     // Recommended for Flux
-        num_images: 1,
-        enable_safety_checker: true,
-        output_format: 'jpeg',
-        seed: Math.floor(Math.random() * 1000000),
-      },
+      input: generationInput,
       logs: false,
     }) as GenerationResult;
 
@@ -220,6 +226,7 @@ export async function generateWithFluxLora(
     return imageUrl;
   } catch (error: any) {
     console.error('[FluxLoRA] Generation failed:', error.message);
+    console.error('[FluxLoRA] Generation error details:', JSON.stringify(error.body || error, null, 2));
     throw error;
   }
 }
