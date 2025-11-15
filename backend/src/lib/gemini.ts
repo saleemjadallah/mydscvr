@@ -529,8 +529,8 @@ async function generateBatchWithFluxLora(
         console.log(`  → Variation ${i + 1}/${headshotsPerTemplate}...`);
 
         // Build prompt for this template
-        // Use concise Flux-optimized prompt with explicit facial preservation
-        const fluxPrompt = `photo of ${triggerWord} person exactly as they are, professional headshot. Keep exact face, hair, beard, and all facial features identical. ${template.background}. ${template.outfit}. Studio lighting, sharp focus, high quality professional photography`;
+        // Use concise Flux-optimized prompt with explicit facial preservation but expression flexibility
+        const fluxPrompt = `professional headshot photo of ${triggerWord} person. Keep exact facial structure, hair, beard, skin tone identical. Relaxed professional expression, smooth forehead, natural smile. ${template.background}. ${template.outfit}. Professional studio lighting, sharp focus, high quality`;
 
         console.log(`  → Prompt: ${fluxPrompt}`);
 

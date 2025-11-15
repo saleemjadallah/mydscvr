@@ -221,7 +221,7 @@ export async function generateWithFluxLora(
     loras: [
       {
         path: loraUrl,
-        scale: 1.2, // Increased LoRA strength to preserve facial features better
+        scale: 1.0, // Balanced LoRA strength - preserves face structure, allows expression changes
       }
     ],
     image_size: fluxImageSize, // Use Flux preset instead of aspect ratio
@@ -231,6 +231,8 @@ export async function generateWithFluxLora(
     enable_safety_checker: true,
     output_format: 'jpeg',
     seed: Math.floor(Math.random() * 1000000),
+    // Negative prompt to prevent copying training photo expressions/poses
+    negative_prompt: 'frowning, scowling, tense eyebrows, furrowed brow, angry expression, sad expression, informal pose, casual selfie',
   };
 
   console.log(`[FluxLoRA] Generation input:`, JSON.stringify(generationInput, null, 2));
