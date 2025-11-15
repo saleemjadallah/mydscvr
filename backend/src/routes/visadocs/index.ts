@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import packagesRouter from './packages';
-import uploadRouter from './upload';
-import chatRouter from './chat';
+import packagesRouter from './packages.js';
+import uploadRouter from './upload.js';
+import chatRouter from './chat.js';
 // Import other VisaDocs routers as they're created
 // import formsRouter from './forms';
 // import translateRouter from './translate';
