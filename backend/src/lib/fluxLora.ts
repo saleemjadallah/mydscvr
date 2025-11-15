@@ -6,8 +6,8 @@
 import * as fal from '@fal-ai/serverless-client';
 import archiver from 'archiver';
 import axios from 'axios';
-import FormData from 'form-data';
 import sharp from 'sharp';
+import { File } from 'buffer';
 
 const FAL_API_KEY = process.env.FAL_API_KEY;
 
@@ -94,36 +94,22 @@ async function createAndUploadZip(imageUrls: string[]): Promise<string> {
 
   console.log(`[FluxLoRA] ZIP created (${(zipBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
 
-  // Upload ZIP to fal.ai storage
+  // Upload ZIP to fal.ai storage using SDK
   console.log(`[FluxLoRA] Uploading ZIP to fal.ai storage...`);
 
-  const formData = new FormData();
-  formData.append('file', zipBuffer, {
-    filename: 'training-images.zip',
-    contentType: 'application/zip',
-  });
-
   try {
-    const uploadResponse = await axios.post('https://queue.fal.run/fal-ai/flux-lora-fast-training/files', formData, {
-      headers: {
-        ...formData.getHeaders(),
-        'Authorization': `Key ${FAL_API_KEY}`,
-      },
+    // Create a File-like object from the buffer
+    const zipFile = new File([zipBuffer], 'training-images.zip', {
+      type: 'application/zip',
     });
 
-    console.log(`[FluxLoRA] Upload response:`, JSON.stringify(uploadResponse.data, null, 2));
-
-    // Try different possible response formats
-    const zipUrl = uploadResponse.data.url || uploadResponse.data.file_url || uploadResponse.data;
-
-    if (!zipUrl || typeof zipUrl !== 'string') {
-      throw new Error(`Invalid upload response - no URL found. Response: ${JSON.stringify(uploadResponse.data)}`);
-    }
+    // Use fal.ai SDK's built-in storage upload
+    const zipUrl = await fal.storage.upload(zipFile);
 
     console.log(`[FluxLoRA] ✓ ZIP uploaded: ${zipUrl}`);
     return zipUrl;
   } catch (error: any) {
-    console.error('[FluxLoRA] Failed to upload ZIP:', error.response?.data || error.message);
+    console.error('[FluxLoRA] Failed to upload ZIP:', error.message);
     throw new Error('Failed to upload training images ZIP to fal.ai');
   }
 }
