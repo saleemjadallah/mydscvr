@@ -128,17 +128,18 @@ export async function swapFace(
     try {
       console.log('[FaceSwap] Using Replicate API (high quality)...');
 
-      // Using easel/advanced-face-swap - GPU-powered (H100) for high quality
+      // Using easel/advanced-face-swap - GPU-powered (H100)
       // Cost: ~$0.05 per swap, Duration: ~6s (GPU)
-      // Features: 2x upscale, detail enhancement, commercial use permitted
+      // IMPORTANT: Disable upscale/detailer to preserve exact face without modifications
       const output = await replicate.run(
         "easel/advanced-face-swap",
         {
           input: {
             target_image: targetImageUrl,  // Target image (Gemini generated)
             swap_image: sourceImageUrl,    // Source face (user photo)
-            upscale: true,                 // Apply 2x upscale for higher resolution
-            detailer: true,                // Enhance image details
+            upscale: false,                // Disable upscale to preserve exact face
+            detailer: false,               // Disable detailer to avoid face modifications
+            hair_source: "user",           // Keep hairstyle from user's photo
           }
         }
       );
