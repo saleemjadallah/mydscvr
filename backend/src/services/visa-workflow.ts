@@ -8,7 +8,7 @@
  * 4. AI Travel Itinerary Generator (AED 125)
  */
 
-import { askJeffrey } from './jeffrey';
+import { askJeffrey } from './jeffrey.js';
 
 export interface VisaRequirements {
   visaType: string;
