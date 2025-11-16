@@ -13,15 +13,6 @@ const perplexity = new OpenAI({
   baseURL: 'https://api.perplexity.ai',
 });
 
-interface VisaFormInfo {
-  name: string;
-  description: string;
-  officialUrl: string;
-  source: string;
-  formType: string;
-  instructions?: string;
-}
-
 const FORM_RESEARCH_PROMPT = `You are a visa application expert. Your job is to find the OFFICIAL visa application forms for a specific country and visa type.
 
 You MUST respond ONLY with valid JSON matching this exact structure (no markdown, no explanation, just JSON):
