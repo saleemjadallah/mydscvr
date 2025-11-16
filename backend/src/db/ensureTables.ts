@@ -52,6 +52,40 @@ export async function ensureTables() {
       console.log('[DB] ⚠ Some critical columns may be missing');
     }
 
+    // Add onboarding columns if they don't exist
+    console.log('[DB] Checking for onboarding columns...');
+
+    const onboardingColumnsExist = await sql`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'users'
+      AND column_name IN ('onboarding_completed', 'travel_profile')
+    `;
+
+    if (onboardingColumnsExist.length < 2) {
+      console.log('[DB] Adding onboarding columns...');
+
+      // Add onboarding_completed if missing
+      const hasOnboardingCompleted = onboardingColumnsExist.some(
+        (col: { column_name: string }) => col.column_name === 'onboarding_completed'
+      );
+      if (!hasOnboardingCompleted) {
+        await sql`ALTER TABLE users ADD COLUMN onboarding_completed INTEGER NOT NULL DEFAULT 0`;
+        console.log('[DB] ✓ Added onboarding_completed column');
+      }
+
+      // Add travel_profile if missing
+      const hasTravelProfile = onboardingColumnsExist.some(
+        (col: { column_name: string }) => col.column_name === 'travel_profile'
+      );
+      if (!hasTravelProfile) {
+        await sql`ALTER TABLE users ADD COLUMN travel_profile JSONB`;
+        console.log('[DB] ✓ Added travel_profile column');
+      }
+    } else {
+      console.log('[DB] ✓ Onboarding columns already exist');
+    }
+
   } catch (error) {
     console.error('[DB] Error ensuring tables:', error);
     // Don't throw - let the app continue and fail naturally if tables are missing
