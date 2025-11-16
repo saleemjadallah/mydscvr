@@ -27,6 +27,32 @@ export const users = pgTable('users', {
   // Premium/Free tier
   isFreeUser: integer('is_free_user').default(0).notNull(), // 1 = free unlimited access, 0 = normal user
 
+  // Onboarding status
+  onboardingCompleted: integer('onboarding_completed').default(0).notNull(), // 1 = completed, 0 = not completed
+
+  // Travel profile from onboarding
+  travelProfile: json('travel_profile').$type<{
+    destinationCountry: string;
+    travelPurpose: string;
+    nationality: string;
+    travelDates: { start: string; end: string };
+    specialConcerns: string[];
+    visaRequirements?: {
+      visaType: string;
+      processingTime: string;
+      requiredDocuments: string[];
+      photoRequirements: {
+        dimensions: string;
+        background: string;
+        specifications: string[];
+      };
+      fees: string;
+      validity: string;
+      additionalNotes: string[];
+    };
+    lastUpdated: string;
+  }>(),
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

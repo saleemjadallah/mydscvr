@@ -11,6 +11,7 @@ import { setupAuth, requireAuth } from './lib/auth.js';
 import batchesRouter from './routes/batches.js';
 import visadocsRouter from './routes/visadocs/index.js';
 import mydscvrRouter from './routes/mydscvr/index.js';
+import onboardingRouter from './routes/onboarding.js';
 import { ensureTables } from './db/ensureTables.js';
 import { uploadBuffer, optimizeUploadedImage } from './lib/storage.js';
 
@@ -176,6 +177,11 @@ app.use('/api/visadocs', visadocsRouter);
 // MYDSCVR CORE FEATURES ROUTES
 // ========================================
 app.use('/api/mydscvr', mydscvrRouter);
+
+// ========================================
+// ONBOARDING ROUTES
+// ========================================
+app.use('/api/onboarding', onboardingRouter);
 
 // ========================================
 // PAYMENT ROUTES
