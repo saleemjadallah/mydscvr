@@ -132,10 +132,11 @@ export function determineRequiredServices(
   const recommendations: ServiceRecommendation[] = [];
 
   // Service 1: AI Form Filler
-  const needsFormFilling =
+  const needsFormFilling = Boolean(
     researchResults.toLowerCase().includes('application form') ||
     researchResults.toLowerCase().includes('visa form') ||
-    requirements.specificForms && requirements.specificForms.length > 0;
+    (requirements.specificForms && requirements.specificForms.length > 0)
+  );
 
   recommendations.push({
     serviceId: 'form_filler',

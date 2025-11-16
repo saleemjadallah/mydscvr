@@ -260,6 +260,160 @@ export const chatSessions = pgTable('chat_sessions', {
 });
 
 // ===================================
+// MYDSCVR CORE TRANSACTIONAL FEATURES
+// ===================================
+
+// Document Validator table
+export const documentValidations = pgTable('document_validations', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id),
+  documentType: text('document_type').notNull(), // attested_degree, marriage_certificate, passport_copy, etc.
+  status: text('status').notNull().default('processing'), // processing, completed, failed
+
+  // Input
+  uploadedDocumentUrl: text('uploaded_document_url').notNull(),
+
+  // Validation results
+  score: integer('score'), // 0-100 compliance score
+  issues: json('issues').$type<{
+    severity: 'critical' | 'warning' | 'info';
+    category: string;
+    description: string;
+    location?: string;
+  }[]>(),
+
+  validationReport: json('validation_report').$type<{
+    attestationCheck: { passed: boolean; details: string };
+    signatureCheck: { passed: boolean; details: string };
+    formatCheck: { passed: boolean; details: string };
+    expiryCheck: { passed: boolean; details: string };
+    legibilityCheck: { passed: boolean; details: string };
+  }>(),
+
+  reportPdfUrl: text('report_pdf_url'), // Generated PDF report URL
+
+  // Pricing
+  amountPaid: integer('amount_paid').notNull(), // In fils (AED cents)
+  stripePaymentId: text('stripe_payment_id'),
+
+  // Metadata
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  completedAt: timestamp('completed_at'),
+  processingTimeSeconds: integer('processing_time_seconds'),
+});
+
+// Photo Compliance table
+export const photoCompliance = pgTable('photo_compliance', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id),
+  visaType: text('visa_type').notNull(), // uae_visa, schengen_visa, us_visa, passport_photo, etc.
+  status: text('status').notNull().default('processing'), // processing, completed, failed
+
+  // Input photos
+  uploadedPhotos: json('uploaded_photos').$type<string[]>(), // Array of R2 URLs
+
+  // Compliance results
+  results: json('results').$type<{
+    photoUrl: string;
+    compliant: boolean;
+    issues: {
+      dimension: boolean;
+      background: boolean;
+      faceSize: boolean;
+      lighting: boolean;
+      quality: boolean;
+    };
+    correctedPhotoUrl?: string; // Auto-corrected photo if applicable
+    score: number; // 0-100
+  }[]>(),
+
+  specifications: json('specifications').$type<{
+    requiredDimensions: string;
+    requiredBackground: string;
+    requiredFaceSize: string;
+  }>(),
+
+  // Pricing
+  amountPaid: integer('amount_paid').notNull(), // In fils (AED cents)
+  stripePaymentId: text('stripe_payment_id'),
+
+  // Metadata
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  completedAt: timestamp('completed_at'),
+  processingTimeSeconds: integer('processing_time_seconds'),
+});
+
+// Travel Itinerary table
+export const travelItineraries = pgTable('travel_itineraries', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id),
+  destination: text('destination').notNull(), // schengen, uk, us, canada, etc.
+  status: text('status').notNull().default('processing'), // processing, completed, failed
+
+  // Input details
+  countries: json('countries').$type<string[]>(), // For multi-country trips (Schengen)
+  duration: integer('duration').notNull(), // In days
+  startDate: timestamp('start_date'),
+  endDate: timestamp('end_date'),
+  travelPurpose: text('travel_purpose'), // tourism, business, family_visit, etc.
+  budget: text('budget'), // low, medium, high
+
+  // Generated itinerary
+  itinerary: json('itinerary').$type<{
+    day: number;
+    date: string;
+    city: string;
+    country: string;
+    activities: {
+      time: string;
+      activity: string;
+      location: string;
+      description: string;
+    }[];
+    accommodation: {
+      name: string;
+      address: string;
+      checkIn: string;
+      checkOut: string;
+      confirmationNumber?: string;
+    };
+    transportation: {
+      type: string;
+      from: string;
+      to: string;
+      time: string;
+      details: string;
+    }[];
+  }[]>(),
+
+  flightDetails: json('flight_details').$type<{
+    outbound: {
+      airline: string;
+      flightNumber: string;
+      departure: { airport: string; time: string; date: string };
+      arrival: { airport: string; time: string; date: string };
+    };
+    return: {
+      airline: string;
+      flightNumber: string;
+      departure: { airport: string; time: string; date: string };
+      arrival: { airport: string; time: string; date: string };
+    };
+  }>(),
+
+  itineraryPdfUrl: text('itinerary_pdf_url'), // Generated PDF itinerary URL
+
+  // Pricing
+  amountPaid: integer('amount_paid').notNull(), // In fils (AED cents)
+  stripePaymentId: text('stripe_payment_id'),
+
+  // Metadata
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  completedAt: timestamp('completed_at'),
+  processingTimeMinutes: integer('processing_time_minutes'),
+});
+
+// ===================================
 // TYPE EXPORTS
 // ===================================
 
@@ -280,3 +434,11 @@ export type VisaKnowledge = typeof visaKnowledge.$inferSelect;
 export type NewVisaKnowledge = typeof visaKnowledge.$inferInsert;
 export type ChatSession = typeof chatSessions.$inferSelect;
 export type NewChatSession = typeof chatSessions.$inferInsert;
+
+// MYDSCVR Core Features types
+export type DocumentValidation = typeof documentValidations.$inferSelect;
+export type NewDocumentValidation = typeof documentValidations.$inferInsert;
+export type PhotoCompliance = typeof photoCompliance.$inferSelect;
+export type NewPhotoCompliance = typeof photoCompliance.$inferInsert;
+export type TravelItinerary = typeof travelItineraries.$inferSelect;
+export type NewTravelItinerary = typeof travelItineraries.$inferInsert;
