@@ -1,0 +1,207 @@
+/**
+ * Visa Forms Routes - Uses Perplexity AI to find official visa forms for any country
+ */
+
+import { Router, Request, Response } from 'express';
+import OpenAI from 'openai';
+
+const router = Router();
+
+// Initialize Perplexity AI client
+const perplexity = new OpenAI({
+  apiKey: process.env.PERPLEXITY_API_KEY || '',
+  baseURL: 'https://api.perplexity.ai',
+});
+
+interface VisaFormInfo {
+  name: string;
+  description: string;
+  officialUrl: string;
+  source: string;
+  formType: string;
+  instructions?: string;
+}
+
+const FORM_RESEARCH_PROMPT = `You are a visa application expert. Your job is to find the OFFICIAL visa application forms for a specific country and visa type.
+
+You MUST respond ONLY with valid JSON matching this exact structure (no markdown, no explanation, just JSON):
+{
+  "forms": [
+    {
+      "name": "string - exact official name of the form (e.g., 'DS-160', 'IMM 5257')",
+      "description": "string - brief description of what this form is for",
+      "officialUrl": "string - OFFICIAL government website URL to access/download this form",
+      "source": "string - official government department or agency name",
+      "formType": "string - 'online' | 'pdf' | 'both'",
+      "instructions": "string - brief key instructions for this form (optional)"
+    }
+  ],
+  "additionalResources": [
+    {
+      "title": "string - resource title",
+      "url": "string - official URL",
+      "description": "string - what this resource helps with"
+    }
+  ],
+  "processingNotes": "string - important notes about form submission for this country"
+}
+
+CRITICAL REQUIREMENTS:
+- ONLY provide OFFICIAL government sources (no third-party websites)
+- Include the EXACT official form names/codes
+- Provide DIRECT links to the official application portals or PDF downloads
+- Include ALL required forms for the visa type (main application + supplementary forms)
+- Verify URLs are current and working (use your web search capability)
+- Include any mandatory supporting documents that need to be filled`;
+
+/**
+ * GET /api/visadocs/forms/search
+ * Search for visa forms for any country using Perplexity AI
+ */
+router.get('/search', async (req: Request, res: Response) => {
+  try {
+    const { country, visaType, purpose, nationality } = req.query;
+
+    if (!country) {
+      return res.status(400).json({ success: false, error: 'Country is required' });
+    }
+
+    console.log(`[VisaForms] Searching forms for: ${country}, type: ${visaType}, purpose: ${purpose}`);
+
+    const userQuery = `Find the OFFICIAL visa application forms for:
+- Destination Country: ${country}
+- Visa Type/Purpose: ${visaType || purpose || 'tourist/visitor visa'}
+${nationality ? `- Applicant Nationality: ${nationality}` : ''}
+
+Provide:
+1. All required official application forms with direct links to government websites
+2. Any supplementary forms needed
+3. Important submission instructions
+4. Links to official portals where forms must be filled online (if applicable)
+
+Focus on the CURRENT 2024-2025 requirements.`;
+
+    const completion = await perplexity.chat.completions.create({
+      model: 'llama-3.1-sonar-large-128k-online', // Use online model for real-time web search
+      messages: [
+        {
+          role: 'system',
+          content: FORM_RESEARCH_PROMPT,
+        },
+        {
+          role: 'user',
+          content: userQuery,
+        },
+      ],
+      temperature: 0.3, // Lower temperature for factual accuracy
+      max_tokens: 2000,
+    });
+
+    const responseContent = completion.choices[0]?.message?.content || '';
+
+    // Parse JSON response
+    try {
+      let cleanedResponse = responseContent.trim();
+      if (cleanedResponse.startsWith('```json')) {
+        cleanedResponse = cleanedResponse.slice(7);
+      }
+      if (cleanedResponse.startsWith('```')) {
+        cleanedResponse = cleanedResponse.slice(3);
+      }
+      if (cleanedResponse.endsWith('```')) {
+        cleanedResponse = cleanedResponse.slice(0, -3);
+      }
+      cleanedResponse = cleanedResponse.trim();
+
+      const formData = JSON.parse(cleanedResponse);
+
+      return res.json({
+        success: true,
+        data: {
+          country,
+          visaType: visaType || purpose || 'tourist/visitor',
+          ...formData,
+          searchedAt: new Date().toISOString(),
+        },
+      });
+    } catch (parseError) {
+      console.error('[VisaForms] Failed to parse JSON response:', parseError);
+      console.error('[VisaForms] Raw response:', responseContent);
+
+      // Return raw response if parsing fails
+      return res.json({
+        success: true,
+        data: {
+          country,
+          visaType: visaType || purpose || 'tourist/visitor',
+          forms: [],
+          rawResponse: responseContent,
+          note: 'Unable to parse structured data. Please see raw response.',
+          searchedAt: new Date().toISOString(),
+        },
+      });
+    }
+  } catch (error) {
+    console.error('[VisaForms] Search error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to search for visa forms' });
+  }
+});
+
+/**
+ * POST /api/visadocs/forms/ask-jeffrey
+ * Ask Jeffrey specifically about visa forms
+ */
+router.post('/ask-jeffrey', async (req: Request, res: Response) => {
+  try {
+    const { question, country, visaType } = req.body;
+
+    if (!question) {
+      return res.status(400).json({ success: false, error: 'Question is required' });
+    }
+
+    const contextPrompt = `You are Jeffrey, an expert visa consultant. The user is asking about visa application forms.
+${country ? `They are applying for a visa to: ${country}` : ''}
+${visaType ? `Visa type: ${visaType}` : ''}
+
+Provide helpful, accurate information about:
+- Where to find official forms
+- How to fill out specific fields
+- Common mistakes to avoid
+- Required supporting documents
+- Submission procedures
+
+Always cite official government sources when possible. Be specific and actionable.`;
+
+    const completion = await perplexity.chat.completions.create({
+      model: 'llama-3.1-sonar-large-128k-online',
+      messages: [
+        {
+          role: 'system',
+          content: contextPrompt,
+        },
+        {
+          role: 'user',
+          content: question,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 1500,
+    });
+
+    const response = completion.choices[0]?.message?.content || 'Sorry, I could not find information about that.';
+
+    return res.json({
+      success: true,
+      data: {
+        response,
+        question,
+        context: { country, visaType },
+      },
+    });
+  } catch (error) {
+    console.error('[VisaForms] Ask Jeffrey error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to get response' });
+  }
+});
+
+export default router;
