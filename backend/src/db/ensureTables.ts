@@ -67,7 +67,7 @@ export async function ensureTables() {
 
       // Add onboarding_completed if missing
       const hasOnboardingCompleted = onboardingColumnsExist.some(
-        (col: { column_name: string }) => col.column_name === 'onboarding_completed'
+        (col) => (col as { column_name: string }).column_name === 'onboarding_completed'
       );
       if (!hasOnboardingCompleted) {
         await sql`ALTER TABLE users ADD COLUMN onboarding_completed INTEGER NOT NULL DEFAULT 0`;
@@ -76,7 +76,7 @@ export async function ensureTables() {
 
       // Add travel_profile if missing
       const hasTravelProfile = onboardingColumnsExist.some(
-        (col: { column_name: string }) => col.column_name === 'travel_profile'
+        (col) => (col as { column_name: string }).column_name === 'travel_profile'
       );
       if (!hasTravelProfile) {
         await sql`ALTER TABLE users ADD COLUMN travel_profile JSONB`;
