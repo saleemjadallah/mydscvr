@@ -73,7 +73,7 @@ Provide:
 Focus on the CURRENT 2024-2025 requirements.`;
 
     const completion = await perplexity.chat.completions.create({
-      model: 'llama-3.1-sonar-large-128k-online', // Use online model for real-time web search
+      model: 'sonar-pro', // Advanced search model with grounding for real-time web search
       messages: [
         {
           role: 'system',
@@ -164,7 +164,7 @@ Provide helpful, accurate information about:
 Always cite official government sources when possible. Be specific and actionable.`;
 
     const completion = await perplexity.chat.completions.create({
-      model: 'llama-3.1-sonar-large-128k-online',
+      model: 'sonar-pro',
       messages: [
         {
           role: 'system',
