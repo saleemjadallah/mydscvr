@@ -86,6 +86,43 @@ export async function ensureTables() {
       console.log('[DB] ✓ Onboarding columns already exist');
     }
 
+    // Create visa_packages table if it doesn't exist (needed for chat_sessions FK)
+    console.log('[DB] Checking for visa_packages table...');
+
+    const visaPackagesExists = await sql`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'visa_packages'
+      )
+    `;
+
+    if (!visaPackagesExists[0]?.exists) {
+      console.log('[DB] Creating visa_packages table...');
+      await sql`
+        CREATE TABLE IF NOT EXISTS visa_packages (
+          id SERIAL PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          destination_country TEXT NOT NULL,
+          visa_type TEXT NOT NULL,
+          current_stage TEXT NOT NULL DEFAULT 'planning',
+          documents JSONB,
+          notes TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )
+      `;
+
+      await sql`
+        CREATE INDEX IF NOT EXISTS idx_visa_packages_user_id ON visa_packages(user_id);
+        CREATE INDEX IF NOT EXISTS idx_visa_packages_stage ON visa_packages(current_stage);
+      `;
+
+      console.log('[DB] ✓ Created visa_packages table');
+    } else {
+      console.log('[DB] ✓ visa_packages table already exists');
+    }
+
     // Create chat_sessions table if it doesn't exist
     console.log('[DB] Checking for chat_sessions table...');
 
@@ -102,18 +139,19 @@ export async function ensureTables() {
       await sql`
         CREATE TABLE IF NOT EXISTS chat_sessions (
           id SERIAL PRIMARY KEY,
-          user_id INTEGER NOT NULL REFERENCES users(id),
-          session_type TEXT NOT NULL DEFAULT 'general',
+          user_id TEXT NOT NULL REFERENCES users(id),
+          package_id INTEGER REFERENCES visa_packages(id),
+          visa_context JSONB,
           messages JSONB NOT NULL DEFAULT '[]'::jsonb,
-          context JSONB,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         )
       `;
 
-      // Create index for faster lookups
+      // Create indexes for faster lookups
       await sql`
-        CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON chat_sessions(user_id)
+        CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON chat_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_chat_sessions_package_id ON chat_sessions(package_id);
       `;
 
       console.log('[DB] ✓ Created chat_sessions table');
