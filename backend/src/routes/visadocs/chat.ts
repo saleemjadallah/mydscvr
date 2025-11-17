@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db, chatSessions } from '../../db/index.js';
+import { db, chatSessions, users } from '../../db/index.js';
 import { eq, and, desc } from 'drizzle-orm';
 import {
   askJeffrey,
@@ -64,9 +64,28 @@ router.post('/', optionalAuth, async (req: any, res: any) => {
       }
     }
 
+    // If authenticated, pull onboarding travel profile to enrich context
+    let enrichedContext = visaContext;
+    if (req.isAuthenticated() && req.user) {
+      const [userRecord] = await db
+        .select({ travelProfile: users.travelProfile })
+        .from(users)
+        .where(eq(users.id, req.user.id));
+
+      const travelProfile = userRecord?.travelProfile as any;
+      if (travelProfile) {
+        enrichedContext = {
+          visaType: visaContext?.visaType || travelProfile.travelPurpose,
+          destinationCountry: visaContext?.destinationCountry || travelProfile.destinationCountry,
+          nationality: visaContext?.nationality || travelProfile.nationality,
+          stage: visaContext?.stage,
+        };
+      }
+    }
+
     // Ask Jeffrey
     const { response, sources } = await askJeffrey(message, {
-      visaContext,
+      visaContext: enrichedContext,
       conversationHistory,
       useSearch,
     });
