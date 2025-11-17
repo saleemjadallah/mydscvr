@@ -14,7 +14,11 @@
       "Bash(npm install:*)",
       "Bash(npx tsc --noEmit)",
       "Bash(git push:*)",
-      "Bash(npx tsx:*)"
+      "Bash(npx tsx:*)",
+      "Bash(npm run db:push:*)",
+      "Bash(git -C /Users/saleemjadallah/Desktop/MyDscvr-Headshot/frontend status)",
+      "Bash(git -C /Users/saleemjadallah/Desktop/MyDscvr-Headshot/frontend add src/components/DashboardLayout.tsx src/components/forms/ src/lib/api-profile.ts src/lib/validation-rules.ts src/pages/ProfileOnboardingPage.tsx src/pages/ProfileSettingsPage.tsx)",
+      "Bash(git -C /Users/saleemjadallah/Desktop/MyDscvr-Headshot/frontend log --oneline -3)"
     ],
     "deny": [],
     "ask": []

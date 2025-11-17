@@ -7,7 +7,8 @@ import {
   educationProfiles,
   familyProfiles,
   travelHistory,
-  filledForms
+  filledForms,
+  formTemplates
 } from '../db/schema-formfiller';
 import { eq, and, desc } from 'drizzle-orm';
 
