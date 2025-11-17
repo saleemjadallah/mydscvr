@@ -86,6 +86,41 @@ export async function ensureTables() {
       console.log('[DB] ✓ Onboarding columns already exist');
     }
 
+    // Create chat_sessions table if it doesn't exist
+    console.log('[DB] Checking for chat_sessions table...');
+
+    const chatSessionsExists = await sql`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'chat_sessions'
+      )
+    `;
+
+    if (!chatSessionsExists[0]?.exists) {
+      console.log('[DB] Creating chat_sessions table...');
+      await sql`
+        CREATE TABLE IF NOT EXISTS chat_sessions (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id),
+          session_type TEXT NOT NULL DEFAULT 'general',
+          messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+          context JSONB,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )
+      `;
+
+      // Create index for faster lookups
+      await sql`
+        CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON chat_sessions(user_id)
+      `;
+
+      console.log('[DB] ✓ Created chat_sessions table');
+    } else {
+      console.log('[DB] ✓ chat_sessions table already exists');
+    }
+
   } catch (error) {
     console.error('[DB] Error ensuring tables:', error);
     // Don't throw - let the app continue and fail naturally if tables are missing
