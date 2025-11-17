@@ -439,6 +439,9 @@ export const travelItineraries = pgTable('travel_itineraries', {
   processingTimeMinutes: integer('processing_time_minutes'),
 });
 
+// Export all form filler tables
+export * from './schema-formfiller';
+
 // ===================================
 // TYPE EXPORTS
 // ===================================
