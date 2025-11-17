@@ -110,12 +110,23 @@ router.post('/', optionalAuth, async (req: any, res: any) => {
 
       if (dbSessionId) {
         // Update existing session
+        const updatePayload: any = {
+          messages: updatedMessages as any,
+          updatedAt: new Date(),
+        };
+
+        if (enrichedContext) {
+          updatePayload.visaContext = {
+            destinationCountry: enrichedContext.destinationCountry,
+            visaType: enrichedContext.visaType,
+            nationality: enrichedContext.nationality,
+            stage: enrichedContext.stage,
+          };
+        }
+
         await db
           .update(chatSessions)
-          .set({
-            messages: updatedMessages as any,
-            updatedAt: new Date(),
-          })
+          .set(updatePayload)
           .where(eq(chatSessions.id, parseInt(dbSessionId)));
       } else {
         // Create new session
@@ -124,10 +135,14 @@ router.post('/', optionalAuth, async (req: any, res: any) => {
           .values({
             userId: req.user.id,
             packageId: visaContext?.packageId || null,
-            visaContext: visaContext ? {
-              country: visaContext.destinationCountry,
-              visaType: visaContext.visaType,
-            } : null,
+            visaContext: enrichedContext
+              ? {
+                  destinationCountry: enrichedContext.destinationCountry,
+                  visaType: enrichedContext.visaType,
+                  nationality: enrichedContext.nationality,
+                  stage: enrichedContext.stage,
+                }
+              : null,
             messages: updatedMessages as any,
           })
           .returning();

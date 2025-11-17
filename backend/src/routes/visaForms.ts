@@ -5,6 +5,7 @@
 import { Router, Request, Response } from 'express';
 import OpenAI from 'openai';
 import { analyzePDFForm } from '../lib/geminiVision.js';
+import { redis } from '../lib/redis.js';
 
 const router = Router();
 
@@ -13,6 +14,8 @@ const perplexity = new OpenAI({
   apiKey: process.env.PERPLEXITY_API_KEY || '',
   baseURL: 'https://api.perplexity.ai',
 });
+
+const FORM_CACHE_TTL_SECONDS = parseInt(process.env.FORM_CACHE_TTL_SECONDS || `${7 * 24 * 60 * 60}`, 10); // default 7 days
 
 const FORM_RESEARCH_PROMPT = `You are a visa application expert. Your job is to find the OFFICIAL visa application forms for a specific country and visa type.
 
@@ -59,6 +62,31 @@ router.get('/search', async (req: Request, res: Response) => {
     }
 
     console.log(`[VisaForms] Searching forms for: ${country}, type: ${visaType}, purpose: ${purpose}`);
+
+    // Build cache key (tie to authenticated user when available, otherwise session)
+    const userKey = (req as any).user?.id || (req as any).sessionID || 'guest';
+    const normalizedCountry = String(country).toLowerCase();
+    const normalizedType = String(visaType || purpose || 'tourist/visitor visa').toLowerCase();
+    const normalizedNationality = String(nationality || 'any').toLowerCase();
+    const cacheKey = `visaforms:${userKey}:${normalizedCountry}:${normalizedType}:${normalizedNationality}`;
+
+    // Serve from cache if present
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        const cachedData = JSON.parse(cached);
+        return res.json({
+          success: true,
+          data: {
+            ...cachedData,
+            searchedAt: cachedData.searchedAt || new Date().toISOString(),
+            fromCache: true,
+          },
+        });
+      }
+    } catch (cacheError) {
+      console.warn('[VisaForms] Cache lookup failed:', cacheError);
+    }
 
     const userQuery = `Find the OFFICIAL visa application forms for:
 - Destination Country: ${country}
@@ -107,14 +135,23 @@ Focus on the CURRENT 2024-2025 requirements.`;
 
       const formData = JSON.parse(cleanedResponse);
 
+      const responsePayload = {
+        country,
+        visaType: visaType || purpose || 'tourist/visitor',
+        ...formData,
+        searchedAt: new Date().toISOString(),
+      };
+
+      // Cache the response for the user/session
+      try {
+        await redis.set(cacheKey, JSON.stringify(responsePayload), 'EX', FORM_CACHE_TTL_SECONDS);
+      } catch (cacheError) {
+        console.warn('[VisaForms] Cache set failed:', cacheError);
+      }
+
       return res.json({
         success: true,
-        data: {
-          country,
-          visaType: visaType || purpose || 'tourist/visitor',
-          ...formData,
-          searchedAt: new Date().toISOString(),
-        },
+        data: responsePayload,
       });
     } catch (parseError) {
       console.error('[VisaForms] Failed to parse JSON response:', parseError);
