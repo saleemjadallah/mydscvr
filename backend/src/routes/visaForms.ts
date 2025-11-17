@@ -4,7 +4,7 @@
 
 import { Router, Request, Response } from 'express';
 import OpenAI from 'openai';
-import { analyzePDFForm } from '../lib/geminiVision';
+import { analyzePDFForm } from '../lib/geminiVision.js';
 
 const router = Router();
 
@@ -257,7 +257,7 @@ router.post('/reanalyze-field', async (req: Request, res: Response) => {
     console.log(`[VisaForms] Re-analyzing field #${fieldIndex}, current label: "${currentLabel}"`);
 
     // Re-analyze just this one page with focus on the specific field
-    const { analyzePDFFormFields } = await import('../lib/geminiVision');
+    const { analyzePDFFormFields } = await import('../lib/geminiVision.js');
     const fields = await analyzePDFFormFields(
       pageImage,
       1, // Single page
