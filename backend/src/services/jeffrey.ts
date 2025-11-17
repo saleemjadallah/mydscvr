@@ -184,9 +184,7 @@ export async function askJeffrey(
   try {
     // Use Perplexity's sonar model with online search capabilities
     const completion = await perplexity.chat.completions.create({
-      model: useSearch
-        ? 'llama-3.1-sonar-large-128k-online' // With real-time search
-        : 'llama-3.1-sonar-large-128k-chat',  // Without search (faster)
+      model: 'sonar-pro', // Updated from deprecated llama-3.1-sonar models
       messages,
       temperature: 0.7, // Balanced creativity and accuracy
       max_tokens: 1000,
@@ -241,7 +239,7 @@ export async function askJeffreyQuick(
 
   try {
     const completion = await perplexity.chat.completions.create({
-      model: 'llama-3.1-sonar-large-128k-chat', // Faster without search
+      model: 'sonar-pro', // Updated from deprecated llama-3.1-sonar models
       messages,
       temperature: 0.7,
       max_tokens: 300,

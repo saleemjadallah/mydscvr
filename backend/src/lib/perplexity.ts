@@ -156,7 +156,7 @@ Return the response as a valid JSON object with this structure:
 
   try {
     const response = await perplexity.chat.completions.create({
-      model: 'llama-3.1-sonar-large-128k-online',
+      model: 'sonar-pro', // Updated from deprecated llama-3.1-sonar-large-128k-online
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -234,7 +234,7 @@ Return as JSON:
 
   try {
     const response = await perplexity.chat.completions.create({
-      model: 'llama-3.1-sonar-large-128k-online',
+      model: 'sonar-pro', // Updated from deprecated llama-3.1-sonar-large-128k-online
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -347,7 +347,7 @@ Return as JSON:
 
   try {
     const response = await perplexity.chat.completions.create({
-      model: 'llama-3.1-sonar-large-128k-online',
+      model: 'sonar-pro', // Updated from deprecated llama-3.1-sonar-large-128k-online
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -405,7 +405,7 @@ Return as JSON:
 
   try {
     const response = await perplexity.chat.completions.create({
-      model: 'llama-3.1-sonar-large-128k-online',
+      model: 'sonar-pro', // Updated from deprecated llama-3.1-sonar-large-128k-online
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },

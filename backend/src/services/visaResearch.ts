@@ -81,7 +81,7 @@ Provide complete visa requirements including documents, photo specs, fees, and p
 
   try {
     const completion = await perplexity.chat.completions.create({
-      model: 'llama-3.1-sonar-large-128k-online', // Use online model for real-time research
+      model: 'sonar-pro', // Updated from deprecated llama-3.1-sonar-large-128k-online
       messages: [
         {
           role: 'system',
