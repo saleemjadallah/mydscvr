@@ -561,6 +561,32 @@ export async function analyzeFormForValidation(
 ): Promise<FormValidationResult> {
   console.log(`[Gemini Vision] Analyzing form for validation - ${pageImages.length} pages, country: ${country}`);
 
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-1.5-flash',
+    generationConfig: {
+      temperature: 0.3,
+      maxOutputTokens: 4096,
+    },
+    safetySettings: [
+      {
+        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
+      },
+    ],
+  });
+
   const parts: Array<{ inlineData: { mimeType: string; data: string } } | { text: string }> = [];
 
   // Add all page images
@@ -586,10 +612,6 @@ export async function analyzeFormForValidation(
           parts,
         },
       ],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 4096,
-      },
     });
 
     const responseText = result.response.text();
