@@ -288,4 +288,48 @@ router.post('/reanalyze-field', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /api/visadocs/forms/analyze-validation
+ * Analyze a visa form using Gemini Vision for validation insights
+ */
+router.post('/analyze-validation', async (req: Request, res: Response) => {
+  try {
+    const { pageImages, prompt, country } = req.body;
+
+    if (!pageImages || !Array.isArray(pageImages) || pageImages.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'pageImages array is required (base64 encoded PNG images)'
+      });
+    }
+
+    console.log(`[VisaForms] Analyzing form for validation - ${pageImages.length} pages, country: ${country}`);
+
+    // Use Gemini Vision for analysis
+    const { analyzeFormForValidation } = await import('../lib/geminiVision.js');
+
+    const validationResult = await analyzeFormForValidation(
+      pageImages,
+      prompt,
+      country || ''
+    );
+
+    console.log(`[VisaForms] Validation analysis complete`);
+
+    return res.json({
+      success: true,
+      data: {
+        validation: validationResult,
+        analyzedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('[VisaForms] Form validation analysis error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to analyze form for validation. Please try again.'
+    });
+  }
+});
+
 export default router;

@@ -535,3 +535,117 @@ export async function analyzePDFForm(
     processingNotes: `Analyzed ${pageImages.length} pages and identified ${allFields.length} form fields using AI vision.`,
   };
 }
+
+/**
+ * Analyze form for validation insights using Gemini Vision
+ */
+export interface FormValidationResult {
+  overallScore: number;
+  completedFields: number;
+  totalFields: number;
+  issues: Array<{
+    id: string;
+    fieldName: string;
+    type: 'error' | 'warning' | 'info';
+    message: string;
+    suggestion?: string;
+  }>;
+  recommendations: string[];
+  countrySpecificNotes: string[];
+}
+
+export async function analyzeFormForValidation(
+  pageImages: string[],
+  prompt: string,
+  country: string
+): Promise<FormValidationResult> {
+  console.log(`[Gemini Vision] Analyzing form for validation - ${pageImages.length} pages, country: ${country}`);
+
+  const parts: Array<{ inlineData: { mimeType: string; data: string } } | { text: string }> = [];
+
+  // Add all page images
+  for (let i = 0; i < pageImages.length; i++) {
+    parts.push({
+      inlineData: {
+        mimeType: 'image/png',
+        data: pageImages[i],
+      },
+    });
+  }
+
+  // Add the analysis prompt
+  parts.push({
+    text: prompt,
+  });
+
+  try {
+    const result = await model.generateContent({
+      contents: [
+        {
+          role: 'user',
+          parts,
+        },
+      ],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 4096,
+      },
+    });
+
+    const responseText = result.response.text();
+    console.log('[Gemini Vision] Validation analysis response received');
+
+    // Parse JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsedResult = JSON.parse(jsonMatch[0]) as FormValidationResult;
+
+      // Ensure all required fields are present
+      return {
+        overallScore: parsedResult.overallScore || 50,
+        completedFields: parsedResult.completedFields || 0,
+        totalFields: parsedResult.totalFields || 0,
+        issues: parsedResult.issues || [],
+        recommendations: parsedResult.recommendations || [],
+        countrySpecificNotes: parsedResult.countrySpecificNotes || [],
+      };
+    }
+
+    // Default response if JSON parsing fails
+    return {
+      overallScore: 50,
+      completedFields: 0,
+      totalFields: 0,
+      issues: [
+        {
+          id: 'parse-error',
+          fieldName: 'Analysis',
+          type: 'info',
+          message: 'Form uploaded successfully. Unable to fully analyze form content.',
+          suggestion: 'Try uploading a clearer PDF with better contrast.',
+        },
+      ],
+      recommendations: ['Ensure PDF is readable and text is clear', 'Upload one page at a time if issues persist'],
+      countrySpecificNotes: country ? [`Analyzing form for ${country} visa application`] : [],
+    };
+  } catch (error) {
+    console.error('[Gemini Vision] Validation analysis error:', error);
+
+    // Return a default structure on error
+    return {
+      overallScore: 0,
+      completedFields: 0,
+      totalFields: 0,
+      issues: [
+        {
+          id: 'analysis-error',
+          fieldName: 'System',
+          type: 'error',
+          message: 'Unable to analyze form. Please try again.',
+        },
+      ],
+      recommendations: ['Try uploading the form again', 'Ensure good internet connection'],
+      countrySpecificNotes: [],
+    };
+  }
+}
