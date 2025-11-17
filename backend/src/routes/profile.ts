@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { db } from '../db';
+import { db } from '../db/index.js';
 import {
   userProfiles,
   passportProfiles,
@@ -9,7 +9,7 @@ import {
   travelHistory,
   filledForms,
   formTemplates
-} from '../db/schema-formfiller';
+} from '../db/schema-formfiller.js';
 import { eq, and, desc } from 'drizzle-orm';
 
 const router = Router();
