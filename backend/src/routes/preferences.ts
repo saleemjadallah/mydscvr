@@ -2,12 +2,11 @@ import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import {
   userPreferences,
-  countryValidationRules,
-  formTemplates,
+  countryValidationRules as countryValidationRulesTable,
   userFormHistory,
   privacySettings
 } from '../db/schema-formfiller-privacy';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 
 const router = Router();
 
@@ -26,7 +25,7 @@ const requireAuth = (req: Request, res: Response, next: any) => {
 // Get user preferences (non-sensitive only)
 router.get('/preferences', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
@@ -85,7 +84,7 @@ router.get('/preferences', requireAuth, async (req: Request, res: Response) => {
 // Save user preferences (non-sensitive only)
 router.post('/preferences', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
@@ -155,11 +154,11 @@ router.get('/validation-rules/:country/:visaType', requireAuth, async (req: Requ
     const { country, visaType } = req.params;
 
     const [rules] = await db.select()
-      .from(countryValidationRules)
+      .from(countryValidationRulesTable)
       .where(and(
-        eq(countryValidationRules.country, country),
-        eq(countryValidationRules.visaType, visaType),
-        eq(countryValidationRules.isActive, true)
+        eq(countryValidationRulesTable.country, country),
+        eq(countryValidationRulesTable.visaType, visaType),
+        eq(countryValidationRulesTable.isActive, true)
       ))
       .limit(1);
 
@@ -201,11 +200,11 @@ router.post('/validate', requireAuth, async (req: Request, res: Response) => {
 
     // Get validation rules
     const [rules] = await db.select()
-      .from(countryValidationRules)
+      .from(countryValidationRulesTable)
       .where(and(
-        eq(countryValidationRules.country, country),
-        eq(countryValidationRules.visaType, visaType),
-        eq(countryValidationRules.isActive, true)
+        eq(countryValidationRulesTable.country, country),
+        eq(countryValidationRulesTable.visaType, visaType),
+        eq(countryValidationRulesTable.isActive, true)
       ))
       .limit(1);
 
@@ -213,7 +212,7 @@ router.post('/validate', requireAuth, async (req: Request, res: Response) => {
     const validationWarnings: any[] = [];
 
     if (rules && rules.validationRules) {
-      const { requiredFields, fieldCharacterLimits, dateFormat, phoneFormat } = rules.validationRules;
+      const { requiredFields, fieldCharacterLimits } = rules.validationRules;
 
       // Check required fields
       requiredFields.forEach(requiredField => {
@@ -254,7 +253,7 @@ router.post('/validate', requireAuth, async (req: Request, res: Response) => {
     // Record form usage (metadata only, no data)
     await db.insert(userFormHistory)
       .values({
-        userId: req.user?.id!,
+        userId: (req.user as { id: string })?.id!,
         country,
         visaType,
         formName: req.body.formName || 'Unknown',
@@ -299,8 +298,8 @@ router.post('/validate', requireAuth, async (req: Request, res: Response) => {
 // Format assistance (helps without storing data)
 router.post('/format-assist', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
-    const { fieldType, value, country } = req.body;
+    const userId = (req.user as { id: string })?.id;
+    const { fieldType, value } = req.body;
 
     // Get user preferences
     const [preferences] = await db.select()
@@ -361,7 +360,7 @@ router.post('/format-assist', requireAuth, async (req: Request, res: Response) =
 // Update privacy settings
 router.post('/privacy', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
@@ -406,7 +405,7 @@ router.post('/privacy', requireAuth, async (req: Request, res: Response) => {
 // Delete all user data
 router.delete('/delete-all-data', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }

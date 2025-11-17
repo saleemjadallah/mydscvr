@@ -7,8 +7,7 @@ import {
   educationProfiles,
   familyProfiles,
   travelHistory,
-  filledForms,
-  formTemplates
+  filledForms
 } from '../db/schema-formfiller';
 import { eq, and, desc } from 'drizzle-orm';
 
@@ -29,7 +28,7 @@ const requireAuth = (req: Request, res: Response, next: any) => {
 // Get user's complete profile
 router.get('/profile', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
@@ -103,7 +102,7 @@ router.get('/profile', requireAuth, async (req: Request, res: Response) => {
 // Create or update main profile
 router.post('/profile', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
@@ -155,7 +154,7 @@ router.post('/profile', requireAuth, async (req: Request, res: Response) => {
 // Add or update passport
 router.post('/passport', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
@@ -191,7 +190,7 @@ router.post('/passport', requireAuth, async (req: Request, res: Response) => {
 // Add employment record
 router.post('/employment', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
@@ -237,7 +236,7 @@ router.post('/employment', requireAuth, async (req: Request, res: Response) => {
 // Add education record
 router.post('/education', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
@@ -273,7 +272,7 @@ router.post('/education', requireAuth, async (req: Request, res: Response) => {
 // Add family member
 router.post('/family', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
@@ -309,7 +308,7 @@ router.post('/family', requireAuth, async (req: Request, res: Response) => {
 // Add travel record
 router.post('/travel', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
@@ -344,7 +343,7 @@ router.post('/travel', requireAuth, async (req: Request, res: Response) => {
 // Get auto-fill data for a form
 router.post('/autofill', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
@@ -561,7 +560,7 @@ router.post('/autofill', requireAuth, async (req: Request, res: Response) => {
 // Save filled form
 router.post('/forms/save', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
@@ -593,7 +592,7 @@ router.post('/forms/save', requireAuth, async (req: Request, res: Response) => {
 // Get form history
 router.get('/forms/history', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user as { id: string })?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'User not found' });
     }
