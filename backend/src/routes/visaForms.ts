@@ -245,7 +245,7 @@ router.post('/analyze-pdf', async (req: Request, res: Response) => {
  */
 router.post('/reanalyze-field', async (req: Request, res: Response) => {
   try {
-    const { pageImage, fieldIndex, currentLabel, visaType } = req.body;
+    const { pageImage, fieldIndex, currentLabel, visaType: _visaType } = req.body;
 
     if (!pageImage) {
       return res.status(400).json({

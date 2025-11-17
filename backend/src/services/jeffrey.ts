@@ -138,7 +138,7 @@ export async function askJeffrey(
   const {
     visaContext,
     conversationHistory = [],
-    useSearch = true,
+    useSearch: _useSearch = true, // Not used since we always use sonar-pro now
   } = options;
 
   // Build context string from visa context
