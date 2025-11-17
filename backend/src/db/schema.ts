@@ -440,7 +440,7 @@ export const travelItineraries = pgTable('travel_itineraries', {
 });
 
 // Export all form filler tables
-export * from './schema-formfiller';
+export * from './schema-formfiller.js';
 
 // ===================================
 // TYPE EXPORTS
