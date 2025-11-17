@@ -4,6 +4,7 @@
 
 import { Router, Request, Response } from 'express';
 import OpenAI from 'openai';
+import { analyzePDFForm } from '../lib/geminiVision';
 
 const router = Router();
 
@@ -192,6 +193,98 @@ Always cite official government sources when possible. Be specific and actionabl
   } catch (error) {
     console.error('[VisaForms] Ask Jeffrey error:', error);
     return res.status(500).json({ success: false, error: 'Failed to get response' });
+  }
+});
+
+/**
+ * POST /api/visadocs/forms/analyze-pdf
+ * Analyze PDF form pages using Gemini Vision AI to identify field labels
+ */
+router.post('/analyze-pdf', async (req: Request, res: Response) => {
+  try {
+    const { pageImages, fieldCount, visaType } = req.body;
+
+    if (!pageImages || !Array.isArray(pageImages) || pageImages.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'pageImages array is required (base64 encoded PNG images)'
+      });
+    }
+
+    console.log(`[VisaForms] Analyzing PDF form with ${pageImages.length} pages, ${fieldCount || 'unknown'} fields`);
+    console.log(`[VisaForms] Visa type: ${visaType || 'unknown'}`);
+
+    // Call Gemini Vision to analyze the PDF pages
+    const analysisResult = await analyzePDFForm(
+      pageImages,
+      fieldCount || pageImages.length * 10 // Estimate 10 fields per page if not provided
+    );
+
+    console.log(`[VisaForms] Analysis complete: ${analysisResult.totalFields} fields identified`);
+
+    return res.json({
+      success: true,
+      data: {
+        ...analysisResult,
+        visaType: visaType || 'unknown',
+        analyzedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('[VisaForms] PDF analysis error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to analyze PDF form. Please try again.'
+    });
+  }
+});
+
+/**
+ * POST /api/visadocs/forms/reanalyze-field
+ * Re-analyze a specific field using Gemini Vision for disagreement cases
+ */
+router.post('/reanalyze-field', async (req: Request, res: Response) => {
+  try {
+    const { pageImage, fieldIndex, currentLabel, visaType } = req.body;
+
+    if (!pageImage) {
+      return res.status(400).json({
+        success: false,
+        error: 'pageImage is required (base64 encoded PNG image)'
+      });
+    }
+
+    console.log(`[VisaForms] Re-analyzing field #${fieldIndex}, current label: "${currentLabel}"`);
+
+    // Re-analyze just this one page with focus on the specific field
+    const { analyzePDFFormFields } = await import('../lib/geminiVision');
+    const fields = await analyzePDFFormFields(
+      pageImage,
+      1, // Single page
+      1, // Total pages = 1 for focused analysis
+      1  // Focus on single field area
+    );
+
+    // Find the field closest to the requested index
+    const targetField = fields.find(f => f.fieldNumber === fieldIndex) || fields[0];
+
+    return res.json({
+      success: true,
+      data: {
+        fieldIndex,
+        previousLabel: currentLabel,
+        newLabel: targetField?.label || currentLabel,
+        confidence: targetField?.confidence || 0.5,
+        fieldType: targetField?.fieldType || 'text',
+        analyzedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('[VisaForms] Field re-analysis error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to re-analyze field'
+    });
   }
 });
 

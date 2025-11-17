@@ -371,3 +371,167 @@ Provide a detailed analysis summary that can be used for automated document vali
     return 'Unable to analyze document image - please verify manually';
   }
 }
+
+interface PDFFormField {
+  fieldNumber: number;
+  label: string;
+  fieldType: string;
+  confidence: number;
+}
+
+interface PDFFormAnalysisResult {
+  formType: string;
+  country: string;
+  totalFields: number;
+  fields: PDFFormField[];
+  processingNotes: string;
+}
+
+/**
+ * Analyze a PDF form page image to identify form fields and their labels
+ * using Gemini Vision AI
+ */
+export async function analyzePDFFormFields(
+  pageImageBase64: string,
+  pageNumber: number,
+  totalPages: number,
+  fieldCount: number
+): Promise<PDFFormField[]> {
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-1.5-flash',
+    generationConfig: {
+      temperature: 0.1,
+      topK: 5,
+      topP: 0.9,
+      maxOutputTokens: 8192,
+    },
+    safetySettings: [
+      {
+        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
+      },
+    ],
+  });
+
+  try {
+    const prompt = `You are analyzing page ${pageNumber} of ${totalPages} of a visa/immigration application form PDF.
+This form contains ${fieldCount} fillable fields that need to be identified.
+
+TASK: Identify EACH fillable form field on this page and determine what information it requests.
+
+For each blank field, text box, or input area you see on the form, identify:
+1. The field number (order from top to bottom, left to right)
+2. The exact label text that appears near/above the field
+3. The type of field (text, date, checkbox, dropdown, signature)
+4. Your confidence level (0.0 to 1.0)
+
+RESPOND WITH VALID JSON ONLY:
+{
+  "fields": [
+    {
+      "fieldNumber": 1,
+      "label": "Exact label text from form",
+      "fieldType": "text|date|checkbox|dropdown|signature",
+      "confidence": 0.95
+    },
+    ...
+  ]
+}
+
+IMPORTANT:
+- Read the ACTUAL labels printed on the form (e.g., "Family Name/Surname", "Date of Birth", "Passport Number")
+- Include ALL fillable fields visible on this page
+- Be precise with labels - use exactly what's written on the form
+- If a field has numbered sub-parts (e.g., "1.1 Family Name"), include the number
+- Common visa form fields include: personal info, passport details, travel dates, addresses, employment, etc.
+- If you can't determine a field's label, describe what type of input it appears to be`;
+
+    console.log(`[Gemini Vision] Analyzing PDF form page ${pageNumber}/${totalPages}...`);
+
+    const result = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          mimeType: 'image/png',
+          data: pageImageBase64,
+        },
+      },
+    ]);
+
+    const response = result.response;
+    const text = response.text();
+
+    // Parse JSON response
+    const cleanedText = text
+      .replace(/```json\n?/g, '')
+      .replace(/```\n?/g, '')
+      .trim();
+
+    const analysis = JSON.parse(cleanedText);
+
+    console.log(`[Gemini Vision] Found ${analysis.fields.length} fields on page ${pageNumber}`);
+
+    return analysis.fields;
+  } catch (error) {
+    console.error(`[Gemini Vision] Error analyzing PDF form page ${pageNumber}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Analyze complete PDF form with all pages
+ */
+export async function analyzePDFForm(
+  pageImages: string[],
+  fieldCount: number
+): Promise<PDFFormAnalysisResult> {
+  console.log(`[Gemini Vision] Analyzing ${pageImages.length} PDF pages with ${fieldCount} fields...`);
+
+  const allFields: PDFFormField[] = [];
+  let fieldOffset = 0;
+
+  for (let i = 0; i < pageImages.length; i++) {
+    const pageFields = await analyzePDFFormFields(
+      pageImages[i],
+      i + 1,
+      pageImages.length,
+      fieldCount
+    );
+
+    // Adjust field numbers based on previous pages
+    const adjustedFields = pageFields.map((field) => ({
+      ...field,
+      fieldNumber: field.fieldNumber + fieldOffset,
+    }));
+
+    allFields.push(...adjustedFields);
+    fieldOffset = allFields.length;
+
+    // Small delay to avoid rate limiting
+    if (i < pageImages.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+
+  console.log(`[Gemini Vision] Total fields identified: ${allFields.length}`);
+
+  return {
+    formType: 'Visa Application Form',
+    country: 'Unknown',
+    totalFields: allFields.length,
+    fields: allFields,
+    processingNotes: `Analyzed ${pageImages.length} pages and identified ${allFields.length} form fields using AI vision.`,
+  };
+}
