@@ -38,6 +38,13 @@ export async function ensureTables() {
 
     console.log('[DB] Free user privileges updated');
 
+    // Apply chat sessions migration (creates visa_packages + chat_sessions if missing)
+    const chatSessionsMigrationPath = join(__dirname, '..', '..', 'drizzle', '0004_create_chat_sessions.sql');
+    const chatSessionsMigrationSQL = readFileSync(chatSessionsMigrationPath, 'utf-8');
+    await sql.unsafe(chatSessionsMigrationSQL);
+
+    console.log('[DB] Chat sessions tables verified/created');
+
     // Verify critical columns exist
     const result = await sql`
       SELECT column_name
