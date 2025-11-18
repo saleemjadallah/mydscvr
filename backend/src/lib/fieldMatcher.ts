@@ -6,7 +6,7 @@
  */
 
 import Fuse from 'fuse.js';
-import type { ExtractedField } from './documentRouter';
+import type { ExtractedField } from './documentRouter.js';
 
 // Canonical field paths in the user profile schema
 export type CanonicalFieldPath =

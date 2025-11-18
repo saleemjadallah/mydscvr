@@ -12,8 +12,8 @@
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import type { ExtractedField } from './documentRouter';
-import type { ValidationIssue } from './rulesEngine';
+import type { ExtractedField } from './documentRouter.js';
+import type { ValidationIssue } from './rulesEngine.js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 

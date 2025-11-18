@@ -12,10 +12,10 @@ import {
   extractFormFieldsWithLayout,
   extractPassportWithPrebuilt,
   assessDocumentQuality,
-} from './azureDocumentIntelligence';
+} from './azureDocumentIntelligence.js';
 import {
   extractFormFieldsWithGemini,
-} from './geminiVision';
+} from './geminiVision.js';
 import { PDFDocument } from 'pdf-lib';
 
 // Unified extraction result interface

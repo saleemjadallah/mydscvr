@@ -7,9 +7,9 @@
  * - < 70% confidence → Full manual review required
  */
 
-import type { ExtractedField } from './documentRouter';
-import type { ValidationIssue } from './rulesEngine';
-import type { AIValidationResult } from './aiValidator';
+import type { ExtractedField } from './documentRouter.js';
+import type { ValidationIssue } from './rulesEngine.js';
+import type { AIValidationResult } from './aiValidator.js';
 
 export interface FieldResult {
   fieldId: string;

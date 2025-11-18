@@ -12,30 +12,30 @@
 
 import express, { Request, Response } from 'express';
 import multer from 'multer';
-import { extractFormFields, detectDocumentType } from '../lib/documentRouter';
-import { matchExtractedFields, getValueFromProfile } from '../lib/fieldMatcher';
-import { validateFormData } from '../lib/rulesEngine';
+import { extractFormFields, detectDocumentType } from '../lib/documentRouter.js';
+import { matchExtractedFields, getValueFromProfile } from '../lib/fieldMatcher.js';
+import { validateFormData } from '../lib/rulesEngine.js';
 import {
   shouldUseAIValidation,
   performAIValidation,
-} from '../lib/aiValidator';
+} from '../lib/aiValidator.js';
 import {
   fillPDFForm,
   extractPDFFieldNames,
   validatePDFForm,
   getPDFMetadata,
-} from '../lib/pdfFormFiller';
+} from '../lib/pdfFormFiller.js';
 import {
   createProcessingResult,
   generateReviewMessage,
   getRecommendedActions,
   calculateProcessingStats,
-} from '../lib/reviewRouter';
-import { validateUserProfile } from '../lib/validationSchemas';
-import { db } from '../db';
-import { filledForms, userProfiles } from '../db/schema-formfiller';
+} from '../lib/reviewRouter.js';
+import { validateUserProfile } from '../lib/validationSchemas.js';
+import { db } from '../db/index.js';
+import { filledForms, userProfiles } from '../db/schema-formfiller.js';
 import { eq } from 'drizzle-orm';
-import { uploadToR2, getSignedDownloadUrl } from '../lib/storage';
+import { uploadToR2, getSignedDownloadUrl } from '../lib/storage.js';
 
 const router = express.Router();
 

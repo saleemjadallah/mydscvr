@@ -10,9 +10,9 @@
  */
 
 import { PDFDocument, PDFForm, rgb, degrees } from 'pdf-lib';
-import type { CanonicalFieldPath } from './fieldMatcher';
-import { applyTransform, type DateFormat } from './fieldTransformers';
-import { getCountryDateFormat } from './countryRules';
+import type { CanonicalFieldPath } from './fieldMatcher.js';
+import { applyTransform, type DateFormat } from './fieldTransformers.js';
+import { getCountryDateFormat } from './countryRules.js';
 
 export interface FieldPopulation {
   fieldId: string;
