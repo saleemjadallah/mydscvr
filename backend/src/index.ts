@@ -13,6 +13,7 @@ import visadocsRouter from './routes/visadocs/index.js';
 import mydscvrRouter from './routes/mydscvr/index.js';
 import onboardingRouter from './routes/onboarding.js';
 import profileRouter from './routes/profile.js';
+import formFillerRouter from './routes/formFiller.js';
 import { ensureTables } from './db/ensureTables.js';
 import { uploadBuffer, optimizeUploadedImage } from './lib/storage.js';
 
@@ -188,6 +189,11 @@ app.use('/api/onboarding', onboardingRouter);
 // PROFILE MANAGEMENT ROUTES (Form Filler)
 // ========================================
 app.use('/api/profile', profileRouter);
+
+// ========================================
+// AI FORM FILLER ROUTES
+// ========================================
+app.use('/api/form-filler', formFillerRouter);
 
 // ========================================
 // PAYMENT ROUTES

@@ -554,6 +554,148 @@ export interface FormValidationResult {
   countrySpecificNotes: string[];
 }
 
+/**
+ * Extract form fields from PDF using Gemini Vision (fallback for Azure)
+ * Best for handwritten sections and poor-quality scanned documents
+ */
+export interface GeminiExtractedField {
+  label: string;
+  value: string;
+  confidence: number;
+  type: 'text' | 'date' | 'number' | 'checkbox' | 'signature';
+}
+
+export interface GeminiExtractionResult {
+  fields: GeminiExtractedField[];
+  extractionMethod: 'gemini_flash';
+  overallConfidence: number;
+  pageCount: number;
+  processingTime: number;
+}
+
+export async function extractFormFieldsWithGemini(
+  pdfBase64Pages: string[]
+): Promise<GeminiExtractionResult> {
+  const startTime = Date.now();
+
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-1.5-flash',
+    generationConfig: {
+      temperature: 0.1,
+      topK: 5,
+      topP: 0.9,
+      maxOutputTokens: 8192,
+    },
+    safetySettings: [
+      {
+        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
+      },
+      {
+        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold: HarmBlockThreshold.BLOCK_NONE,
+      },
+    ],
+  });
+
+  try {
+    const parts: Array<{ inlineData: { mimeType: string; data: string } } | { text: string }> = [];
+
+    // Add all page images
+    for (const pageBase64 of pdfBase64Pages) {
+      parts.push({
+        inlineData: {
+          mimeType: 'image/png',
+          data: pageBase64,
+        },
+      });
+    }
+
+    // Add extraction prompt
+    parts.push({
+      text: `You are analyzing a ${pdfBase64Pages.length}-page visa/immigration application form.
+
+TASK: Extract ALL form fields (labels + their filled-in values) from this document.
+
+For each form field you see, identify:
+1. The exact label text (e.g., "Family Name", "Date of Birth", "Passport Number")
+2. The value filled into that field (if any - may be blank, handwritten, or typed)
+3. The field type (text, date, number, checkbox, signature)
+4. Your confidence level in the extraction (0.0 to 1.0)
+
+RESPOND WITH VALID JSON ONLY (no markdown, no explanation):
+{
+  "fields": [
+    {
+      "label": "Exact field label from form",
+      "value": "The filled-in value (or empty string if blank)",
+      "type": "text|date|number|checkbox|signature",
+      "confidence": 0.95
+    }
+  ]
+}
+
+IMPORTANT:
+- Extract BOTH the field labels AND their values
+- Include fields even if they're blank (value: "")
+- For checkboxes: value should be "checked", "unchecked", or "yes"/"no"
+- For dates: preserve the exact format shown
+- For handwritten text: do your best to read it accurately
+- If a value is unclear, lower the confidence score
+- Common fields: names, dates of birth, passport numbers, addresses, nationalities, etc.`,
+    });
+
+    console.log(`[Gemini Vision] Extracting fields from ${pdfBase64Pages.length} pages...`);
+
+    const result = await model.generateContent({
+      contents: [
+        {
+          role: 'user',
+          parts,
+        },
+      ],
+    });
+
+    const responseText = result.response.text();
+
+    // Parse JSON response
+    const cleanedText = responseText
+      .replace(/```json\n?/g, '')
+      .replace(/```\n?/g, '')
+      .trim();
+
+    const analysis = JSON.parse(cleanedText);
+
+    // Calculate overall confidence
+    const fields: GeminiExtractedField[] = analysis.fields || [];
+    const totalConfidence = fields.reduce((sum, field) => sum + field.confidence, 0);
+    const overallConfidence = fields.length > 0 ? Math.round((totalConfidence / fields.length) * 100) : 0;
+
+    const processingTime = Date.now() - startTime;
+
+    console.log(`[Gemini Vision] Extracted ${fields.length} fields. Overall confidence: ${overallConfidence}%`);
+
+    return {
+      fields,
+      extractionMethod: 'gemini_flash',
+      overallConfidence,
+      pageCount: pdfBase64Pages.length,
+      processingTime,
+    };
+  } catch (error) {
+    console.error('[Gemini Vision] Field extraction failed:', error);
+    throw new Error(`Gemini extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
 export async function analyzeFormForValidation(
   pageImages: string[],
   prompt: string,
