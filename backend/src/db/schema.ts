@@ -266,6 +266,8 @@ export const chatSessions = pgTable('chat_sessions', {
   visaContext: json('visa_context').$type<{
     country?: string;
     visaType?: string;
+    nationality?: string;
+    stage?: string;
   }>(), // Context for better RAG retrieval
 
   messages: json('messages').$type<{

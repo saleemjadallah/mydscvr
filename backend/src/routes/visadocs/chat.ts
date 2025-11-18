@@ -78,7 +78,7 @@ router.post('/', optionalAuth, async (req: any, res: any) => {
           visaType: visaContext?.visaType || travelProfile.travelPurpose,
           destinationCountry: visaContext?.destinationCountry || travelProfile.destinationCountry,
           nationality: visaContext?.nationality || travelProfile.nationality,
-          stage: visaContext?.stage,
+          stage: visaContext?.stage || travelProfile.stage,
         };
       }
     }
@@ -117,7 +117,7 @@ router.post('/', optionalAuth, async (req: any, res: any) => {
 
         if (enrichedContext) {
           updatePayload.visaContext = {
-            destinationCountry: enrichedContext.destinationCountry,
+            country: enrichedContext.destinationCountry,
             visaType: enrichedContext.visaType,
             nationality: enrichedContext.nationality,
             stage: enrichedContext.stage,
@@ -137,7 +137,7 @@ router.post('/', optionalAuth, async (req: any, res: any) => {
             packageId: visaContext?.packageId || null,
             visaContext: enrichedContext
               ? {
-                  destinationCountry: enrichedContext.destinationCountry,
+                  country: enrichedContext.destinationCountry,
                   visaType: enrichedContext.visaType,
                   nationality: enrichedContext.nationality,
                   stage: enrichedContext.stage,
