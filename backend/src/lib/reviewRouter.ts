@@ -107,10 +107,6 @@ export function routeForReview(
   }
 
   // FULL REVIEW: Low confidence or multiple errors
-  const reason = errors.length > 0
-    ? `${errors.length} validation error(s) detected`
-    : `Low extraction confidence (${overallConfidence}%)`;
-
   return {
     action: 'full_review',
     message: 'This form requires manual review',
@@ -187,8 +183,8 @@ export function createProcessingResult(
       confidence: field.confidence,
       source: 'extracted' as const,
       issues: fieldIssues.length > 0 ? fieldIssues : undefined,
-      needsReview,
-      reviewReason,
+      needsReview: needsReview || false,
+      reviewReason: reviewReason || undefined,
     };
   });
 

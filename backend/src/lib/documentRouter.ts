@@ -218,7 +218,7 @@ async function convertPDFToBase64Images(pdfBuffer: Buffer): Promise<string[]> {
 /**
  * Detect document type from PDF content
  */
-export async function detectDocumentType(pdfBuffer: Buffer): Promise<DocumentType> {
+export async function detectDocumentType(_pdfBuffer: Buffer): Promise<DocumentType> {
   try {
     // For MVP: Default to visa_form
     // In production, you could use Azure DI or Gemini to detect document type

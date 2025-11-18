@@ -9,13 +9,10 @@
  * - Country-specific requirements
  */
 
-import { Engine, Rule, RuleProperties } from 'json-rules-engine';
+import { Engine, type RuleProperties } from 'json-rules-engine';
 import {
   validatePassportForCountry,
-  getCountryRules,
-  type CountryRules,
 } from './countryRules';
-import { parseToISODate } from './fieldTransformers';
 
 export interface ValidationIssue {
   field: string;
@@ -512,6 +509,8 @@ export async function validateFormData(
   const infos: ValidationIssue[] = [];
 
   for (const event of events) {
+    if (!event.params) continue;
+
     const issue: ValidationIssue = {
       field: event.params.field || 'general',
       message: event.params.message || 'Validation issue detected',
