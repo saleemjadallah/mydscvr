@@ -69,12 +69,16 @@ export async function extractFormFieldsWithLayout(
           const confidence = kvp.confidence || 0;
 
           if (label && value) {
+            // Convert Point2D[] to number[] if polygon exists
+            const polygon = kvp.key.boundingRegions?.[0]?.polygon;
+            const boundingBox = polygon?.map((point) => [point.x, point.y]).flat();
+
             fields.push({
               label: label.trim(),
               value: value.trim(),
               confidence: Math.round(confidence * 100),
               type: inferFieldType(value),
-              boundingBox: kvp.key.boundingRegions?.[0]?.polygon,
+              boundingBox,
             });
 
             totalConfidence += confidence;
@@ -252,24 +256,8 @@ export async function assessDocumentQuality(pdfBuffer: Buffer): Promise<{
       }
     }
 
-    // Check for handwriting (indicates scanned document)
-    let handwrittenCount = 0;
-    if (result.pages) {
-      for (const page of result.pages) {
-        if (page.lines) {
-          for (const line of page.lines) {
-            if (line.appearance?.style?.name === 'handwriting') {
-              handwrittenCount++;
-            }
-          }
-        }
-      }
-    }
-
-    if (handwrittenCount > 5) {
-      score -= 25;
-      reasons.push('Contains handwritten sections');
-    }
+    // Note: Handwriting detection not available in current Azure SDK version
+    // Could be added in future versions or via alternative methods
 
     // Determine quality level
     let quality: 'high' | 'medium' | 'low';

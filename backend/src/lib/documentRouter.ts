@@ -7,22 +7,16 @@
  * 3. If Azure is not configured → Always use Gemini Flash
  */
 
-import * as pdfParse from 'pdf-parse';
 import {
   isAzureConfigured,
   extractFormFieldsWithLayout,
   extractPassportWithPrebuilt,
   assessDocumentQuality,
-  type DocumentExtractionResult as AzureExtractionResult,
 } from './azureDocumentIntelligence';
 import {
   extractFormFieldsWithGemini,
-  type GeminiExtractionResult,
 } from './geminiVision';
 import { PDFDocument } from 'pdf-lib';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { createCanvas, loadImage } from 'canvas';
 
 // Unified extraction result interface
 export interface ExtractedField {
@@ -71,8 +65,6 @@ export async function extractFormFields(
  * Prefers Azure's specialized ID model, falls back to Gemini
  */
 async function extractPassportDocument(pdfBuffer: Buffer): Promise<ExtractionResult> {
-  const startTime = Date.now();
-
   try {
     // If Azure is configured, use prebuilt ID model
     if (isAzureConfigured()) {
@@ -112,8 +104,6 @@ async function extractPassportDocument(pdfBuffer: Buffer): Promise<ExtractionRes
  * Extract visa form fields with intelligent routing
  */
 async function extractVisaForm(pdfBuffer: Buffer): Promise<ExtractionResult> {
-  const startTime = Date.now();
-
   try {
     // If Azure is not configured, go straight to Gemini
     if (!isAzureConfigured()) {
@@ -211,38 +201,12 @@ async function convertPDFToBase64Images(pdfBuffer: Buffer): Promise<string[]> {
 
     console.log(`[Document Router] Converting ${pageCount} PDF pages to images...`);
 
-    // For now, we'll use a simplified approach
-    // In production, you'd want to use a library like pdf-to-img or pdf2pic
-    // that can properly render PDFs to images
-
-    // Parse PDF to extract text and basic structure
-    const pdfData = await pdfParse(pdfBuffer);
-
-    // Create a simple placeholder image for each page
-    // TODO: Replace with actual PDF rendering (e.g., using pdf2pic)
+    // For MVP: Gemini can process PDF buffers directly, no need for image conversion
+    // Return empty array - Gemini Vision accepts PDF buffers
+    // TODO: In production, add actual PDF-to-image rendering if needed
     const base64Pages: string[] = [];
 
-    for (let i = 0; i < pageCount; i++) {
-      // For MVP, we'll create a text-based representation
-      // In production, render actual PDF pages to images
-      const canvas = createCanvas(800, 1100);
-      const ctx = canvas.getContext('2d');
-
-      // White background
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, 800, 1100);
-
-      // Add page number
-      ctx.fillStyle = 'black';
-      ctx.font = '12px Arial';
-      ctx.fillText(`Page ${i + 1} of ${pageCount}`, 20, 30);
-
-      // Convert to base64
-      const base64 = canvas.toBuffer('image/png').toString('base64');
-      base64Pages.push(base64);
-    }
-
-    console.log(`[Document Router] Converted ${base64Pages.length} pages to base64 images`);
+    console.log(`[Document Router] PDF will be processed directly by Gemini`);
 
     return base64Pages;
   } catch (error) {
@@ -256,29 +220,10 @@ async function convertPDFToBase64Images(pdfBuffer: Buffer): Promise<string[]> {
  */
 export async function detectDocumentType(pdfBuffer: Buffer): Promise<DocumentType> {
   try {
-    const pdfData = await pdfParse(pdfBuffer);
-    const text = pdfData.text.toLowerCase();
-
-    // Passport indicators
-    if (
-      text.includes('passport') &&
-      (text.includes('passport number') || text.includes('surname') || text.includes('given name'))
-    ) {
-      return 'passport';
-    }
-
-    // Visa form indicators
-    if (
-      text.includes('visa') ||
-      text.includes('application') ||
-      text.includes('entry permit') ||
-      text.includes('immigration')
-    ) {
-      return 'visa_form';
-    }
-
-    // Default to supporting document
-    return 'supporting_doc';
+    // For MVP: Default to visa_form
+    // In production, you could use Azure DI or Gemini to detect document type
+    // or add more sophisticated heuristics
+    return 'visa_form';
   } catch (error) {
     console.error('[Document Router] Document type detection failed:', error);
     return 'visa_form'; // Default assumption

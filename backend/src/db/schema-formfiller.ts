@@ -346,6 +346,7 @@ export const filledForms = pgTable('filled_forms', {
   // Files
   originalPdfUrl: text('original_pdf_url'),
   filledPdfUrl: text('filled_pdf_url'),
+  outputUrl: text('output_url'), // R2 URL for generated filled PDF
 
   // Validation results
   validationErrors: json('validation_errors').$type<{
@@ -354,9 +355,29 @@ export const filledForms = pgTable('filled_forms', {
     severity: 'error' | 'warning' | 'info';
   }[]>(),
 
+  // Field-level results for review
+  fieldResults: json('field_results').$type<{
+    fieldId: string;
+    label: string;
+    value: string;
+    confidence: number;
+    source: 'extracted' | 'profile' | 'manual';
+    issues?: {
+      field: string;
+      message: string;
+      severity: 'error' | 'warning' | 'info';
+    }[];
+    needsReview: boolean;
+    reviewReason?: string;
+  }[]>(),
+
+  // Overall confidence score
+  overallConfidence: integer('overall_confidence'), // 0-100
+
   // Status
-  status: text('status').notNull().default('draft'), // draft, completed, submitted
+  status: text('status').notNull().default('draft'), // draft, completed, submitted, processing
   submittedAt: timestamp('submitted_at'),
+  completedAt: timestamp('completed_at'), // When form filling was completed
   applicationNumber: text('application_number'), // If submitted
 
   createdAt: timestamp('created_at').defaultNow().notNull(),

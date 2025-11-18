@@ -13,7 +13,8 @@ import visadocsRouter from './routes/visadocs/index.js';
 import mydscvrRouter from './routes/mydscvr/index.js';
 import onboardingRouter from './routes/onboarding.js';
 import profileRouter from './routes/profile.js';
-import formFillerRouter from './routes/formFiller.js';
+// TEMP: Commented out until TypeScript errors are fixed
+// import formFillerRouter from './routes/formFiller.js';
 import { ensureTables } from './db/ensureTables.js';
 import { uploadBuffer, optimizeUploadedImage } from './lib/storage.js';
 
@@ -193,7 +194,8 @@ app.use('/api/profile', profileRouter);
 // ========================================
 // AI FORM FILLER ROUTES
 // ========================================
-app.use('/api/form-filler', formFillerRouter);
+// TEMP: Commented out until TypeScript errors are fixed
+// app.use('/api/form-filler', formFillerRouter);
 
 // ========================================
 // PAYMENT ROUTES
