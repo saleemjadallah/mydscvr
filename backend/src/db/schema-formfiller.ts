@@ -1,5 +1,5 @@
 import { pgTable, text, serial, integer, timestamp, json, varchar, date, boolean } from 'drizzle-orm/pg-core';
-import { users } from './schema.js';
+import { users } from './schema';
 
 // ===================================
 // ENHANCED FORM FILLER TABLES

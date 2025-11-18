@@ -16,8 +16,15 @@ import {
 import {
   extractFormFieldsWithGemini,
 } from './geminiVision.js';
-import * as pdfjs from 'pdfjs-dist';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.js';
 import { createCanvas, Canvas, CanvasRenderingContext2D } from 'canvas';
+
+// Polyfill for DOMMatrix
+if (typeof global.DOMMatrix === 'undefined') {
+  const { DOMMatrix } = await import('dommatrix');
+  global.DOMMatrix = DOMMatrix;
+}
+
 
 // Set workerSrc to null to prevent it from trying to load a worker script.
 pdfjs.GlobalWorkerOptions.workerSrc = '';
