@@ -17,10 +17,7 @@ import {
   extractFormFieldsWithGemini,
 } from './geminiVision.js';
 import { createCanvas, Canvas, CanvasRenderingContext2D } from 'canvas';
-import DOMMatrix from '@thednp/dommatrix';
 
-// Polyfill for DOMMatrix
-(global as any).DOMMatrix = DOMMatrix;
 
 
 // Unified extraction result interface
@@ -143,7 +140,7 @@ async function extractVisaForm(pdfBuffer: Buffer): Promise<ExtractionResult> {
  * Convert PDF to base64-encoded PNG images (for Gemini Vision)
  */
 async function convertPDFToBase64Images(pdfBuffer: Buffer): Promise<string[]> {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
+  const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
   pdfjs.GlobalWorkerOptions.workerSrc = '';
   const base64Pages: string[] = [];
   const loadingTask = pdfjs.getDocument({ data: pdfBuffer });
