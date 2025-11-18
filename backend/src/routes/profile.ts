@@ -92,10 +92,17 @@ router.get('/profile', requireAuth, async (req: Request, res: Response) => {
       }
     });
   } catch (error) {
-    console.error('Error fetching profile:', error);
+    console.error('[Profile] Error fetching profile:', error);
+    if (error instanceof Error) {
+      console.error('[Profile] Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+    }
     return res.status(500).json({
       success: false,
-      error: 'Failed to fetch profile'
+      error: error instanceof Error ? error.message : 'Failed to fetch profile'
     });
   }
 });
