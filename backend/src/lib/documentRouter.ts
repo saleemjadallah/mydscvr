@@ -2,9 +2,9 @@
  * Document Router - Intelligently routes PDF documents to optimal extraction service
  *
  * Strategy:
- * 1. High quality PDFs with clear text → Azure Document Intelligence (best accuracy)
- * 2. Low quality or handwritten PDFs → Gemini Flash (better OCR for edge cases)
- * 3. If Azure is not configured → Always use Gemini Flash
+ * 1. Try Azure Document Intelligence first for all documents if configured.
+ * 2. If Azure fails or is not configured, fall back to Gemini Vision.
+ * 3. For Gemini, convert PDF pages to images for processing.
  */
 
 import {
@@ -16,7 +16,12 @@ import {
 import {
   extractFormFieldsWithGemini,
 } from './geminiVision.js';
-import { PDFDocument } from 'pdf-lib';
+import * as pdfjs from 'pdfjs-dist';
+import { createCanvas, Canvas, CanvasRenderingContext2D } from 'canvas';
+
+// Set workerSrc to null to prevent it from trying to load a worker script.
+pdfjs.GlobalWorkerOptions.workerSrc = '';
+
 
 // Unified extraction result interface
 export interface ExtractedField {
@@ -65,13 +70,10 @@ export async function extractFormFields(
  * Prefers Azure's specialized ID model, falls back to Gemini
  */
 async function extractPassportDocument(pdfBuffer: Buffer): Promise<ExtractionResult> {
-  try {
-    // If Azure is configured, use prebuilt ID model
-    if (isAzureConfigured()) {
+  if (isAzureConfigured()) {
+    try {
       console.log('[Document Router] Using Azure Prebuilt ID model for passport extraction');
-
       const azureResult = await extractPassportWithPrebuilt(pdfBuffer);
-
       return {
         fields: azureResult.fields,
         extractionMethod: azureResult.extractionMethod,
@@ -79,61 +81,36 @@ async function extractPassportDocument(pdfBuffer: Buffer): Promise<ExtractionRes
         pageCount: azureResult.pageCount,
         processingTime: azureResult.processingTime,
       };
+    } catch (azureError) {
+      console.warn('[Document Router] Azure passport extraction failed, falling back to Gemini.', azureError);
     }
-
-    // Fallback to Gemini if Azure not configured
-    console.log('[Document Router] Azure not configured, using Gemini for passport extraction');
-
-    const pdfPages = await convertPDFToBase64Images(pdfBuffer);
-    const geminiResult = await extractFormFieldsWithGemini(pdfPages);
-
-    return {
-      fields: geminiResult.fields,
-      extractionMethod: geminiResult.extractionMethod,
-      overallConfidence: geminiResult.overallConfidence,
-      pageCount: geminiResult.pageCount,
-      processingTime: geminiResult.processingTime,
-    };
-  } catch (error) {
-    console.error('[Document Router] Passport extraction failed:', error);
-    throw new Error(`Passport extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
+
+  // Fallback to Gemini
+  console.log('[Document Router] Using Gemini for passport extraction');
+  const pdfPages = await convertPDFToBase64Images(pdfBuffer);
+  const geminiResult = await extractFormFieldsWithGemini(pdfPages);
+  return {
+    fields: geminiResult.fields,
+    extractionMethod: geminiResult.extractionMethod,
+    overallConfidence: geminiResult.overallConfidence,
+    pageCount: geminiResult.pageCount,
+    processingTime: geminiResult.processingTime,
+  };
 }
 
 /**
  * Extract visa form fields with intelligent routing
  */
 async function extractVisaForm(pdfBuffer: Buffer): Promise<ExtractionResult> {
-  try {
-    // If Azure is not configured, go straight to Gemini
-    if (!isAzureConfigured()) {
-      console.log('[Document Router] Azure not configured, using Gemini Flash for all extractions');
-
-      const pdfPages = await convertPDFToBase64Images(pdfBuffer);
-      const geminiResult = await extractFormFieldsWithGemini(pdfPages);
-
-      return {
-        fields: geminiResult.fields,
-        extractionMethod: geminiResult.extractionMethod,
-        overallConfidence: geminiResult.overallConfidence,
-        pageCount: geminiResult.pageCount,
-        processingTime: geminiResult.processingTime,
-      };
-    }
-
-    // Assess document quality to determine routing
-    const qualityAssessment = await assessDocumentQuality(pdfBuffer);
-
-    console.log(
-      `[Document Router] Quality assessment: ${qualityAssessment.quality} (score: ${qualityAssessment.score})`
-    );
-
-    // High quality PDFs → Azure (better accuracy)
-    if (qualityAssessment.quality === 'high') {
-      console.log('[Document Router] Using Azure Document Intelligence (high quality)');
-
+  if (isAzureConfigured()) {
+    try {
+      console.log('[Document Router] Using Azure Document Intelligence for form extraction');
+      const qualityAssessment = await assessDocumentQuality(pdfBuffer);
+      console.log(
+        `[Document Router] Quality assessment: ${qualityAssessment.quality} (score: ${qualityAssessment.score})`
+      );
       const azureResult = await extractFormFieldsWithLayout(pdfBuffer);
-
       return {
         fields: azureResult.fields,
         extractionMethod: azureResult.extractionMethod,
@@ -142,77 +119,55 @@ async function extractVisaForm(pdfBuffer: Buffer): Promise<ExtractionResult> {
         processingTime: azureResult.processingTime,
         qualityAssessment,
       };
+    } catch (azureError) {
+      console.warn('[Document Router] Azure form extraction failed, falling back to Gemini.', azureError);
     }
-
-    // Low/medium quality → Try Azure first, fallback to Gemini if confidence is low
-    if (qualityAssessment.quality === 'medium') {
-      console.log('[Document Router] Trying Azure first (medium quality)');
-
-      const azureResult = await extractFormFieldsWithLayout(pdfBuffer);
-
-      // If Azure confidence is good enough, use it
-      if (azureResult.overallConfidence >= 70) {
-        console.log(`[Document Router] Azure extraction successful (confidence: ${azureResult.overallConfidence}%)`);
-
-        return {
-          fields: azureResult.fields,
-          extractionMethod: azureResult.extractionMethod,
-          overallConfidence: azureResult.overallConfidence,
-          pageCount: azureResult.pageCount,
-          processingTime: azureResult.processingTime,
-          qualityAssessment,
-        };
-      }
-
-      // Azure confidence too low, fallback to Gemini
-      console.log(
-        `[Document Router] Azure confidence low (${azureResult.overallConfidence}%), falling back to Gemini`
-      );
-    }
-
-    // Low quality or low Azure confidence → Use Gemini
-    console.log('[Document Router] Using Gemini Flash (low quality or handwritten content)');
-
-    const pdfPages = await convertPDFToBase64Images(pdfBuffer);
-    const geminiResult = await extractFormFieldsWithGemini(pdfPages);
-
-    return {
-      fields: geminiResult.fields,
-      extractionMethod: geminiResult.extractionMethod,
-      overallConfidence: geminiResult.overallConfidence,
-      pageCount: geminiResult.pageCount,
-      processingTime: geminiResult.processingTime,
-      qualityAssessment,
-    };
-  } catch (error) {
-    console.error('[Document Router] Form extraction failed:', error);
-    throw new Error(`Form extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
+
+  // Fallback to Gemini
+  console.log('[Document Router] Using Gemini Flash for form extraction');
+  const pdfPages = await convertPDFToBase64Images(pdfBuffer);
+  const geminiResult = await extractFormFieldsWithGemini(pdfPages);
+  const qualityAssessment = await assessDocumentQuality(pdfBuffer);
+  return {
+    fields: geminiResult.fields,
+    extractionMethod: geminiResult.extractionMethod,
+    overallConfidence: geminiResult.overallConfidence,
+    pageCount: geminiResult.pageCount,
+    processingTime: geminiResult.processingTime,
+    qualityAssessment,
+  };
 }
 
 /**
  * Convert PDF to base64-encoded PNG images (for Gemini Vision)
  */
 async function convertPDFToBase64Images(pdfBuffer: Buffer): Promise<string[]> {
-  try {
-    // Load PDF with pdf-lib
-    const pdfDoc = await PDFDocument.load(pdfBuffer);
-    const pageCount = pdfDoc.getPageCount();
+  const base64Pages: string[] = [];
+  const loadingTask = pdfjs.getDocument({ data: pdfBuffer });
+  const pdf = await loadingTask.promise;
+  const pageCount = pdf.numPages;
 
-    console.log(`[Document Router] Converting ${pageCount} PDF pages to images...`);
+  console.log(`[Document Router] Converting ${pageCount} PDF pages to images...`);
 
-    // For MVP: Gemini can process PDF buffers directly, no need for image conversion
-    // Return empty array - Gemini Vision accepts PDF buffers
-    // TODO: In production, add actual PDF-to-image rendering if needed
-    const base64Pages: string[] = [];
+  for (let i = 1; i <= pageCount; i++) {
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 1.5 });
+    const canvas = createCanvas(viewport.width, viewport.height) as Canvas;
+    const context = canvas.getContext('2d') as CanvasRenderingContext2D;
 
-    console.log(`[Document Router] PDF will be processed directly by Gemini`);
+    const renderContext = {
+      canvasContext: context,
+      viewport: viewport,
+      canvas: canvas,
+    };
 
-    return base64Pages;
-  } catch (error) {
-    console.error('[Document Router] PDF conversion failed:', error);
-    throw new Error(`PDF conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    await page.render(renderContext).promise;
+    base64Pages.push(canvas.toDataURL('image/png'));
   }
+
+  console.log(`[Document Router] PDF conversion complete.`);
+  return base64Pages;
 }
 
 /**
