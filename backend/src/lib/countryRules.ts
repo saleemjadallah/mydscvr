@@ -9,7 +9,7 @@
  * - Specific visa requirements and restrictions
  */
 
-import type { DateFormat, AddressFormat } from './fieldTransformers';
+import type { DateFormat, AddressFormat } from './fieldTransformers.js';
 
 export interface PassportValidityRule {
   months: number; // Minimum months of validity required

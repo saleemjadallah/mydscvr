@@ -12,7 +12,7 @@
 import { Engine, type RuleProperties } from 'json-rules-engine';
 import {
   validatePassportForCountry,
-} from './countryRules';
+} from './countryRules.js';
 
 export interface ValidationIssue {
   field: string;
