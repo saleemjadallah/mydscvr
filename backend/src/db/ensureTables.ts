@@ -166,6 +166,191 @@ export async function ensureTables() {
       console.log('[DB] ✓ chat_sessions table already exists');
     }
 
+    // Create form filler tables
+    console.log('[DB] Checking for form filler tables...');
+
+    // Check if user_profiles exists
+    const userProfilesExists = await sql`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'user_profiles'
+      )
+    `;
+
+    if (!userProfilesExists[0]?.exists) {
+      console.log('[DB] Creating form filler tables...');
+
+      // Create user_profiles table
+      await sql`
+        CREATE TABLE IF NOT EXISTS user_profiles (
+          id VARCHAR PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          first_name TEXT NOT NULL,
+          middle_name TEXT,
+          last_name TEXT NOT NULL,
+          maiden_name TEXT,
+          date_of_birth DATE NOT NULL,
+          place_of_birth TEXT NOT NULL,
+          gender TEXT NOT NULL,
+          marital_status TEXT NOT NULL,
+          email TEXT NOT NULL,
+          phone TEXT NOT NULL,
+          alternative_phone TEXT,
+          current_address JSONB NOT NULL,
+          previous_addresses JSONB,
+          nationality TEXT NOT NULL,
+          dual_nationality TEXT,
+          country_of_birth TEXT NOT NULL,
+          emergency_contact JSONB,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `;
+
+      // Create passport_profiles table
+      await sql`
+        CREATE TABLE IF NOT EXISTS passport_profiles (
+          id VARCHAR PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          profile_id VARCHAR REFERENCES user_profiles(id),
+          passport_number TEXT NOT NULL,
+          passport_type TEXT NOT NULL,
+          issuing_country TEXT NOT NULL,
+          issuing_authority TEXT,
+          issue_date DATE NOT NULL,
+          expiry_date DATE NOT NULL,
+          place_of_issue TEXT,
+          is_active BOOLEAN DEFAULT true NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `;
+
+      // Create employment_profiles table
+      await sql`
+        CREATE TABLE IF NOT EXISTS employment_profiles (
+          id VARCHAR PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          profile_id VARCHAR REFERENCES user_profiles(id),
+          company_name TEXT NOT NULL,
+          job_title TEXT NOT NULL,
+          employment_type TEXT NOT NULL,
+          start_date DATE NOT NULL,
+          end_date DATE,
+          is_current BOOLEAN DEFAULT false NOT NULL,
+          company_address JSONB NOT NULL,
+          supervisor_name TEXT,
+          supervisor_phone TEXT,
+          monthly_salary NUMERIC,
+          job_duties TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `;
+
+      // Create education_profiles table
+      await sql`
+        CREATE TABLE IF NOT EXISTS education_profiles (
+          id VARCHAR PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          profile_id VARCHAR REFERENCES user_profiles(id),
+          institution_name TEXT NOT NULL,
+          degree_level TEXT NOT NULL,
+          field_of_study TEXT NOT NULL,
+          start_date DATE NOT NULL,
+          graduation_date DATE,
+          is_current BOOLEAN DEFAULT false NOT NULL,
+          institution_address JSONB NOT NULL,
+          gpa TEXT,
+          honors TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `;
+
+      // Create family_profiles table
+      await sql`
+        CREATE TABLE IF NOT EXISTS family_profiles (
+          id VARCHAR PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          profile_id VARCHAR REFERENCES user_profiles(id),
+          relationship TEXT NOT NULL,
+          first_name TEXT NOT NULL,
+          last_name TEXT NOT NULL,
+          date_of_birth DATE NOT NULL,
+          nationality TEXT NOT NULL,
+          occupation TEXT,
+          current_address JSONB,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `;
+
+      // Create travel_history table
+      await sql`
+        CREATE TABLE IF NOT EXISTS travel_history (
+          id VARCHAR PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          profile_id VARCHAR REFERENCES user_profiles(id),
+          country TEXT NOT NULL,
+          purpose TEXT NOT NULL,
+          entry_date DATE NOT NULL,
+          exit_date DATE,
+          visa_type TEXT,
+          duration_days INTEGER,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `;
+
+      // Create form_templates table
+      await sql`
+        CREATE TABLE IF NOT EXISTS form_templates (
+          id VARCHAR PRIMARY KEY,
+          country TEXT NOT NULL,
+          visa_type TEXT NOT NULL,
+          form_name TEXT NOT NULL,
+          official_url TEXT NOT NULL,
+          field_mappings JSONB NOT NULL,
+          instructions TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `;
+
+      // Create filled_forms table
+      await sql`
+        CREATE TABLE IF NOT EXISTS filled_forms (
+          id VARCHAR PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          profile_id VARCHAR REFERENCES user_profiles(id),
+          template_id VARCHAR REFERENCES form_templates(id),
+          form_data JSONB NOT NULL,
+          pdf_url TEXT,
+          status TEXT NOT NULL DEFAULT 'draft',
+          submitted_at TIMESTAMP WITH TIME ZONE,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `;
+
+      // Create indexes
+      await sql`
+        CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id ON user_profiles(user_id);
+        CREATE INDEX IF NOT EXISTS idx_passport_profiles_user_id ON passport_profiles(user_id);
+        CREATE INDEX IF NOT EXISTS idx_employment_profiles_user_id ON employment_profiles(user_id);
+        CREATE INDEX IF NOT EXISTS idx_education_profiles_user_id ON education_profiles(user_id);
+        CREATE INDEX IF NOT EXISTS idx_family_profiles_user_id ON family_profiles(user_id);
+        CREATE INDEX IF NOT EXISTS idx_travel_history_user_id ON travel_history(user_id);
+        CREATE INDEX IF NOT EXISTS idx_filled_forms_user_id ON filled_forms(user_id);
+      `;
+
+      console.log('[DB] ✓ Created form filler tables');
+    } else {
+      console.log('[DB] ✓ Form filler tables already exist');
+    }
+
   } catch (error) {
     console.error('[DB] Error ensuring tables:', error);
     // Don't throw - let the app continue and fail naturally if tables are missing
