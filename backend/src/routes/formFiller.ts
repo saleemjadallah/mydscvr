@@ -24,10 +24,8 @@ import {
   extractPDFFieldNames,
   validatePDFForm,
   getPDFMetadata,
-  createFieldPopulations,
 } from '../lib/pdfFormFiller';
 import {
-  routeForReview,
   createProcessingResult,
   generateReviewMessage,
   getRecommendedActions,
@@ -37,7 +35,7 @@ import { validateUserProfile } from '../lib/validationSchemas';
 import { db } from '../db';
 import { filledForms, userProfiles } from '../db/schema-formfiller';
 import { eq } from 'drizzle-orm';
-import { uploadToR2, getSignedUrl } from '../lib/storage';
+import { uploadToR2, getSignedDownloadUrl } from '../lib/storage';
 
 const router = express.Router();
 
@@ -47,7 +45,7 @@ const upload = multer({
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
   },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     if (file.mimetype === 'application/pdf') {
       cb(null, true);
     } else {
@@ -133,7 +131,7 @@ router.post('/extract', requireAuth, upload.single('pdf'), async (req: Request, 
  */
 router.post('/map', requireAuth, async (req: Request, res: Response) => {
   try {
-    const { extractedFields, profileId } = req.body;
+    const { extractedFields } = req.body;
 
     if (!extractedFields || !Array.isArray(extractedFields)) {
       return res.status(400).json({
@@ -260,16 +258,25 @@ router.post('/fill', requireAuth, upload.single('pdf'), async (req: Request, res
 
     // Save filled form to database
     await db.insert(filledForms).values({
+      id: formId,
       userId,
+      country: destinationCountry || 'Unknown',
+      visaType: 'General',
+      formName: req.file.originalname || 'Form',
+      filledData: {},
+      totalFields: parsedFieldPopulations.length,
+      filledFields: fillResult.populatedFields,
+      validFields: fillResult.populatedFields,
+      completionPercentage: Math.round((fillResult.populatedFields / parsedFieldPopulations.length) * 100),
       status: 'completed',
       outputUrl: r2Key,
       fieldResults: parsedFieldPopulations,
       overallConfidence: 85, // Calculate from field results
-      processingTimeMs: fillResult.processingTime,
+      completedAt: new Date(),
     });
 
     // Get signed URL for download
-    const downloadUrl = await getSignedUrl(r2Key);
+    const downloadUrl = await getSignedDownloadUrl(r2Key);
 
     res.json({
       success: true,
@@ -395,7 +402,7 @@ router.post('/:id/validate', requireAuth, async (req: Request, res: Response) =>
 router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = (req.user as any).id;
-    const formId = parseInt(req.params.id);
+    const formId = req.params.id;
 
     const forms = await db
       .select()
@@ -423,7 +430,7 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
     // Get download URL if form is completed
     let downloadUrl;
     if (form.outputUrl) {
-      downloadUrl = await getSignedUrl(form.outputUrl);
+      downloadUrl = await getSignedDownloadUrl(form.outputUrl);
     }
 
     res.json({
@@ -454,7 +461,7 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
 router.get('/:id/download', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = (req.user as any).id;
-    const formId = parseInt(req.params.id);
+    const formId = req.params.id;
 
     const forms = await db
       .select()
@@ -487,7 +494,7 @@ router.get('/:id/download', requireAuth, async (req: Request, res: Response) => 
     }
 
     // Get signed download URL
-    const downloadUrl = await getSignedUrl(form.outputUrl, 3600); // 1 hour expiry
+    const downloadUrl = await getSignedDownloadUrl(form.outputUrl, 3600); // 1 hour expiry
 
     res.json({
       success: true,
@@ -558,7 +565,7 @@ router.get('/history', requireAuth, async (req: Request, res: Response) => {
 router.put('/:id/fields', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = (req.user as any).id;
-    const formId = parseInt(req.params.id);
+    const formId = req.params.id;
     const { fieldUpdates } = req.body;
 
     if (!fieldUpdates || !Array.isArray(fieldUpdates)) {
@@ -600,8 +607,7 @@ router.put('/:id/fields', requireAuth, async (req: Request, res: Response) => {
         updatedFieldResults[update.fieldId] = {
           ...updatedFieldResults[update.fieldId],
           value: update.value,
-          source: 'user_input',
-          updatedAt: new Date().toISOString(),
+          source: 'manual',
         };
       }
     }
@@ -610,7 +616,7 @@ router.put('/:id/fields', requireAuth, async (req: Request, res: Response) => {
     await db
       .update(filledForms)
       .set({
-        fieldResults: updatedFieldResults,
+        fieldResults: Object.values(updatedFieldResults) as any,
         updatedAt: new Date(),
       })
       .where(eq(filledForms.id, formId));
