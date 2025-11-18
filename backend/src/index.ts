@@ -50,12 +50,13 @@ app.use(cookieParser());
 // IMPORTANT: Preserve raw body for Stripe webhook signature verification
 app.use(
   express.json({
+    limit: '50mb', // Increase limit for base64 images in vision API requests
     verify: (req: any, _res, buf) => {
       req.rawBody = buf; // Save raw buffer for Stripe
     },
   })
 );
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Setup authentication (session + passport + routes)
 await setupAuth(app);
