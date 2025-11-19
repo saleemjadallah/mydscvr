@@ -15,7 +15,8 @@ nixLibs = [
   "libuuid",
   "pixman",
   "freetype",
-  "glib"
+  "glib",
+  "harfbuzz"
 ]
 
 [phases.install]
