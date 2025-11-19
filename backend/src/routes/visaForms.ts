@@ -7,13 +7,7 @@ import OpenAI from 'openai';
 import { extractFormFields, type DocumentType } from '../lib/documentRouter.js';
 import { extractPDFFormFields, generateFieldLabel, correlateFields } from '../lib/pdfFieldExtractor.js';
 import { redis } from '../lib/redis.js';
-import {
-  askJeffrey,
-  askJeffreyQuick,
-  getSuggestedQuestions,
-  getJeffreyFieldGuidance,
-  JeffreyMessage,
-} from '../../services/jeffrey.js';
+import { getJeffreyFieldGuidance } from '../services/jeffrey.js';
 import {
   analyzeFormForValidation,
 } from '../lib/geminiVision.js';
