@@ -1,7 +1,10 @@
 [phases.setup]
+# Use Node.js 20 for canvas compatibility (no prebuilt binaries for v22)
+nixPkgs = ["nodejs-20_x", "python3"]
+
 # Native dependencies for canvas, sharp, and pdf processing
-nixPkgs = [
-  "nodejs-18_x",
+# Using nixLibs adds these to LD_LIBRARY_PATH at runtime
+nixLibs = [
   "pkg-config",
   "cairo",
   "pango",
@@ -10,7 +13,6 @@ nixPkgs = [
   "giflib",
   "librsvg",
   "libuuid",
-  "python3",
   "pixman"
 ]
 
@@ -21,4 +23,7 @@ cmds = ["cd backend && npm ci"]
 cmds = ["cd backend && npm run build"]
 
 [phases.start]
-cmd = "cd backend && npm run db:push && npm start"
+# IMPORTANT: Removed db:push from start command
+# db:push is interactive and blocks deployment
+# Run migrations manually or via separate Railway service/job
+cmd = "cd backend && npm start"
