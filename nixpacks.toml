@@ -13,7 +13,8 @@ nixLibs = [
   "giflib",
   "librsvg",
   "libuuid",
-  "pixman"
+  "pixman",
+  "freetype"
 ]
 
 [phases.install]
