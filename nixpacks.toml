@@ -1,10 +1,6 @@
 [phases.setup]
+# Native dependencies for canvas, sharp, and pdf processing
 nixPkgs = [
-  # Tooling to build native Node deps and runtime libs for canvas/sharp
-  "nodejs_18",  # includes npm
-  "python3",
-  "gnumake",
-  "gcc",
   "pkg-config",
   "cairo",
   "pango",
@@ -12,13 +8,10 @@ nixPkgs = [
   "libjpeg",
   "giflib",
   "librsvg",
-  "libuuid"
+  "libuuid",
+  "python3",
+  "pixman"
 ]
-
-aptPkgs = ["libuuid1", "libglib2.0-0", "libsm6", "libxext6", "libxrender1"]
-
-[variables]
-LD_LIBRARY_PATH = '/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH'
 
 [phases.install]
 cmds = ["cd backend && npm ci"]
