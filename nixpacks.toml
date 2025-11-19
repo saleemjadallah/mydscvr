@@ -1,6 +1,6 @@
 [phases.setup]
 # Use Node.js 20 for canvas compatibility (no prebuilt binaries for v22)
-nixPkgs = ["nodejs-20_x", "python3"]
+nixPkgs = ["nodejs_20", "python3"]
 
 # Native dependencies for canvas, sharp, and pdf processing
 # Using nixLibs adds these to LD_LIBRARY_PATH at runtime
