@@ -79,7 +79,7 @@ export interface DocumentExtractionResult {
   barcodes: ExtractedBarcode[];
   metadata: DocumentMetadata;
   markdownOutput: string;
-  extractionMethod: 'azure_layout' | 'azure_prebuilt_id';
+  extractionMethod: 'azure_layout' | 'azure_document' | 'azure_prebuilt_id' | 'gemini_flash';
   processingTime: number;
 }
 
@@ -103,8 +103,8 @@ export class AzureFormExtractor {
 
     // Determine features based on document
     // Note: In the JS SDK, features are passed as strings in the options
+    // 'keyValuePairs' is native to prebuilt-document, so we don't need to request it as a feature
     const features: string[] = [
-      'keyValuePairs',
       'languages',
       'barcodes',
       'ocr.font',
@@ -120,10 +120,10 @@ export class AzureFormExtractor {
 
     console.log(`[AzureFormExtractor] Analyzing document with features: ${features.join(', ')}`);
 
-    // Analyze document
+    // Analyze document using prebuilt-document (General Document) which supports KVPs
     // @ts-ignore - The SDK types might not be fully up to date with all features, but they are supported by the service
     const poller = await this.client.beginAnalyzeDocument(
-      "prebuilt-layout",
+      "prebuilt-document",
       file,
       {
         features: features as any, // Cast to any to bypass strict type checking if SDK is older
@@ -163,7 +163,7 @@ export class AzureFormExtractor {
       },
 
       markdownOutput: this.generateMarkdownOutput(analyzeResult),
-      extractionMethod: 'azure_layout',
+      extractionMethod: 'azure_document',
       processingTime: Date.now() - startTime
     };
 
@@ -177,12 +177,11 @@ export class AzureFormExtractor {
 
     // @ts-ignore
     const poller = await this.client.beginAnalyzeDocument(
-      "prebuilt-layout",
+      "prebuilt-document",
       file,
       {
         features: [
-          'ocr.highResolution',
-          'keyValuePairs'
+          'ocr.highResolution'
         ] as any
       }
     );
@@ -202,7 +201,7 @@ export class AzureFormExtractor {
         overallConfidence: this.calculateOverallConfidence(analyzeResult)
       },
       markdownOutput: this.generateMarkdownOutput(analyzeResult),
-      extractionMethod: 'azure_layout',
+      extractionMethod: 'azure_document',
       processingTime: Date.now() - startTime
     };
   }
@@ -539,8 +538,8 @@ export async function assessDocumentQuality(pdfBuffer: Buffer): Promise<{
   try {
     const client = getClient();
 
-    // Quick analysis using layout model
-    const poller = await client.beginAnalyzeDocument('prebuilt-layout', pdfBuffer);
+    // Quick analysis using document model (supports KVPs)
+    const poller = await client.beginAnalyzeDocument('prebuilt-document', pdfBuffer);
     const result = await poller.pollUntilDone();
 
     let score = 100;

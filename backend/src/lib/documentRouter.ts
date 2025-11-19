@@ -38,7 +38,7 @@ export interface ExtractionResult {
   selectionMarks?: ExtractedSelectionMark[];
   barcodes?: ExtractedBarcode[];
   markdownOutput?: string;
-  extractionMethod: 'azure_layout' | 'azure_prebuilt_id' | 'gemini_flash';
+  extractionMethod: 'azure_layout' | 'azure_document' | 'azure_prebuilt_id' | 'gemini_flash';
   overallConfidence: number;
   pageCount: number;
   processingTime: number;
