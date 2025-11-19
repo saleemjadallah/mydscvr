@@ -336,3 +336,68 @@ export function formatJeffreyResponse(response: string): {
     hasProTips,
   };
 }
+/**
+ * Get guidance for specific form fields
+ */
+export async function getJeffreyFieldGuidance(
+  fields: { name: string; label?: string }[],
+  visaContext: {
+    country: string;
+    visaType: string;
+  }
+): Promise<{
+  fieldGuidance: Array<{
+    fieldName: string;
+    description: string;
+    importance: 'required' | 'recommended' | 'optional';
+    commonMistakes: string[];
+  }>;
+}> {
+  const prompt = `You are Jeffrey, a visa expert. For this ${visaContext.country} ${visaContext.visaType} application, explain these fields briefly (1-2 lines each).
+
+Fields to explain:
+${fields.map(f => `- ${f.label || f.name}`).join('\n')}
+
+Return ONLY a JSON object with this structure (no markdown formatting):
+{
+  "fieldGuidance": [
+    {
+      "fieldName": "exact field name from list",
+      "description": "brief 1-2 line explanation",
+      "importance": "required" | "recommended" | "optional",
+      "commonMistakes": ["mistake1", "mistake2"]
+    }
+  ]
+}`;
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: JEFFREY_SYSTEM_PROMPT + '\n\nIMPORTANT: Return ONLY valid JSON. Do not include markdown formatting like ```json.',
+    },
+    {
+      role: 'user' as const,
+      content: prompt,
+    },
+  ];
+
+  try {
+    const completion = await perplexity.chat.completions.create({
+      model: 'sonar-pro',
+      messages,
+      temperature: 0.2, // Lower temperature for more consistent JSON
+      max_tokens: 2000,
+    });
+
+    const content = completion.choices[0]?.message?.content || '{}';
+
+    // Clean up potential markdown formatting
+    const jsonStr = content.replace(/```json\n?|\n?```/g, '').trim();
+
+    return JSON.parse(jsonStr);
+  } catch (error) {
+    console.error('[Jeffrey Field Guidance] Error:', error);
+    // Return empty guidance on error rather than failing
+    return { fieldGuidance: [] };
+  }
+}

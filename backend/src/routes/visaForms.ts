@@ -7,6 +7,16 @@ import OpenAI from 'openai';
 import { extractFormFields, type DocumentType } from '../lib/documentRouter.js';
 import { extractPDFFormFields, generateFieldLabel, correlateFields } from '../lib/pdfFieldExtractor.js';
 import { redis } from '../lib/redis.js';
+import {
+  askJeffrey,
+  askJeffreyQuick,
+  getSuggestedQuestions,
+  getJeffreyFieldGuidance,
+  JeffreyMessage,
+} from '../../services/jeffrey.js';
+import {
+  analyzeFormForValidation,
+} from '../lib/geminiVision.js';
 
 const router = Router();
 
@@ -428,26 +438,81 @@ router.post('/extract-fields', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/visadocs/forms/get-field-guidance
+ * Get Jeffrey's guidance for specific form fields
+ */
+router.post('/get-field-guidance', async (req: Request, res: Response) => {
+  try {
+    const { fields, country, visaType } = req.body;
+
+    if (!fields || !Array.isArray(fields)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Fields array is required',
+      });
+    }
+
+    console.log(`[VisaForms] Getting Jeffrey guidance for ${fields.length} fields (${country} ${visaType})`);
+
+    const guidance = await getJeffreyFieldGuidance(
+      fields,
+      {
+        country: country || 'Unknown',
+        visaType: visaType || 'Visa',
+      }
+    );
+
+    return res.json({
+      success: true,
+      data: guidance,
+    });
+  } catch (error) {
+    console.error('[VisaForms] Field guidance error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get field guidance',
+    });
+  }
+});
+
+/**
  * POST /api/visadocs/forms/analyze-validation
  * Form validation endpoint - currently returns minimal response (Gemini Vision not configured)
  */
-router.post('/analyze-validation', async (_req: Request, res: Response) => {
-  console.log('[VisaForms] Validation endpoint called - returning minimal response');
+router.post('/analyze-validation', async (req: Request, res: Response) => {
+  try {
+    const { pageImages, prompt, country } = req.body;
 
-  // Return a graceful response instead of 503 to prevent frontend errors
-  return res.status(200).json({
-    success: true,
-    data: {
-      validation: {
-        overallScore: 0,
-        completedFields: 0,
-        totalFields: 0,
-        issues: [],
-        recommendations: ['Form validation via Gemini Vision is currently not configured. Use the Smart Document Processor for field analysis.'],
-        countrySpecificNotes: []
-      }
+    if (!pageImages || !Array.isArray(pageImages) || pageImages.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Page images are required',
+      });
     }
-  });
+
+    console.log(`[VisaForms] Analyzing validation for ${pageImages.length} pages (${country})`);
+
+    // Call Gemini Vision for validation
+    const validationResult = await analyzeFormForValidation(
+      pageImages,
+      prompt || 'Analyze this form for completeness and errors.',
+      country || 'Unknown'
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        validation: validationResult
+      }
+    });
+  } catch (error) {
+    console.error('[VisaForms] Validation analysis error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to analyze form validation'
+    });
+  }
 });
+
 
 export default router;

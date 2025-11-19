@@ -34,7 +34,7 @@ import {
 import { validateUserProfile } from '../lib/validationSchemas.js';
 import { db } from '../db/index.js';
 import { filledForms, userProfiles } from '../db/schema-formfiller.js';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { uploadToR2, getSignedDownloadUrl } from '../lib/storage.js';
 
 const router = express.Router();
@@ -671,6 +671,92 @@ router.post('/pdf/fields', requireAuth, upload.single('pdf'), async (req: Reques
       success: false,
       error: 'Failed to extract field names',
       details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * POST /api/form-filler/save-draft
+ * Save form progress (autosave)
+ */
+router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { formId, formData, pdfBytes: _pdfBytes } = req.body;
+    const userId = (req.user as any).id;
+
+    if (!formData) {
+      return res.status(400).json({
+        success: false,
+        error: 'Form data is required',
+      });
+    }
+
+    // If formId exists, update existing form
+    if (formId) {
+      // Verify ownership
+      const [existingForm] = await db
+        .select()
+        .from(filledForms)
+        .where(and(eq(filledForms.id, formId), eq(filledForms.userId, userId)));
+
+      if (!existingForm) {
+        return res.status(404).json({
+          success: false,
+          error: 'Form not found or access denied',
+        });
+      }
+
+      // Update form data
+      await db
+        .update(filledForms)
+        .set({
+          filledData: formData,
+          updatedAt: new Date(),
+          // If PDF bytes provided, we might want to save them too, but for now we just save data
+          // In a real app, we'd upload the new PDF to storage and update filledPdfUrl
+        })
+        .where(eq(filledForms.id, formId));
+
+      return res.json({
+        success: true,
+        data: {
+          formId,
+          savedAt: new Date(),
+        },
+      });
+    } else {
+      // Create new draft form
+      // Note: In a real flow, we'd probably want more metadata here (country, visa type, etc.)
+      // For now, we'll create a basic record
+      const [newForm] = await db
+        .insert(filledForms)
+        .values({
+          userId,
+          country: 'Unknown', // Should be passed in body
+          visaType: 'Unknown', // Should be passed in body
+          formName: 'Draft Form',
+          filledData: formData,
+          totalFields: Object.keys(formData).length,
+          filledFields: Object.keys(formData).filter(k => formData[k]?.value).length,
+          validFields: 0,
+          completionPercentage: 0,
+          status: 'draft',
+        })
+        .returning();
+
+      return res.json({
+        success: true,
+        data: {
+          formId: newForm.id,
+          savedAt: new Date(),
+        },
+      });
+    }
+  } catch (error) {
+    console.error('[Form Filler API] Save draft error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to save draft',
     });
   }
 });
