@@ -429,14 +429,24 @@ router.post('/extract-fields', async (req: Request, res: Response) => {
 
 /**
  * POST /api/visadocs/forms/analyze-validation
- * DISABLED: This endpoint uses Gemini Vision which is disabled for Azure-only testing
+ * Form validation endpoint - currently returns minimal response (Gemini Vision not configured)
  */
 router.post('/analyze-validation', async (_req: Request, res: Response) => {
-  console.log('[VisaForms] Validation endpoint called - DISABLED for Azure-only testing');
+  console.log('[VisaForms] Validation endpoint called - returning minimal response');
 
-  return res.status(503).json({
-    success: false,
-    error: 'Validation analysis is temporarily disabled for Azure Document Intelligence testing. Use /analyze-pdf or /extract-fields instead.'
+  // Return a graceful response instead of 503 to prevent frontend errors
+  return res.status(200).json({
+    success: true,
+    data: {
+      validation: {
+        overallScore: 0,
+        completedFields: 0,
+        totalFields: 0,
+        issues: [],
+        recommendations: ['Form validation via Gemini Vision is currently not configured. Use the Smart Document Processor for field analysis.'],
+        countrySpecificNotes: []
+      }
+    }
   });
 });
 
