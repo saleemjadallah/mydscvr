@@ -1,6 +1,10 @@
 [phases.setup]
 nixPkgs = [
-  # Native deps required for node-canvas and friends at runtime
+  # Tooling to build native Node deps and runtime libs for canvas/sharp
+  "nodejs_18",  # includes npm
+  "python3",
+  "gnumake",
+  "gcc",
   "pkg-config",
   "cairo",
   "pango",
@@ -10,3 +14,12 @@ nixPkgs = [
   "librsvg",
   "libuuid"
 ]
+
+[phases.install]
+cmds = ["cd backend && npm ci"]
+
+[phases.build]
+cmds = ["cd backend && npm run build"]
+
+[phases.start]
+cmd = "cd backend && npm run db:push && npm start"
