@@ -107,8 +107,7 @@ export class AzureFormExtractor {
     const features: string[] = [
       'languages',
       'barcodes',
-      'ocr.font',
-      'styles'
+      'ocr.font'
     ];
 
     // Add query fields if we have template
