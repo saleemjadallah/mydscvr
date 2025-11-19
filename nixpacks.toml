@@ -12,7 +12,8 @@ nixPkgs = [
   "libjpeg",
   "giflib",
   "librsvg",
-  "libuuid"
+  "libuuid",
+  "util-linux"
 ]
 
 [phases.install]
