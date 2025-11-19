@@ -97,41 +97,26 @@ async function extractPassportDocument(pdfBuffer: Buffer): Promise<ExtractionRes
 }
 
 /**
- * Extract visa form fields with intelligent routing
+ * Extract visa form fields using Azure Document Intelligence ONLY
+ * NOTE: No fallback to Gemini - Azure only for testing/isolation
  */
 async function extractVisaForm(pdfBuffer: Buffer): Promise<ExtractionResult> {
-  if (isAzureConfigured()) {
-    try {
-      console.log('[Document Router] Using Azure Document Intelligence for form extraction');
-      const qualityAssessment = await assessDocumentQuality(pdfBuffer);
-      console.log(
-        `[Document Router] Quality assessment: ${qualityAssessment.quality} (score: ${qualityAssessment.score})`
-      );
-      const azureResult = await extractFormFieldsWithLayout(pdfBuffer);
-      return {
-        fields: azureResult.fields,
-        extractionMethod: azureResult.extractionMethod,
-        overallConfidence: azureResult.overallConfidence,
-        pageCount: azureResult.pageCount,
-        processingTime: azureResult.processingTime,
-        qualityAssessment,
-      };
-    } catch (azureError) {
-      console.warn('[Document Router] Azure form extraction failed, falling back to Gemini.', azureError);
-    }
+  if (!isAzureConfigured()) {
+    throw new Error('Azure Document Intelligence is not configured. Please set AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT and AZURE_DOCUMENT_INTELLIGENCE_KEY environment variables.');
   }
 
-  // Fallback to Gemini
-  console.log('[Document Router] Using Gemini Flash for form extraction');
-  const pdfPages = await convertPDFToBase64Images(pdfBuffer);
-  const geminiResult = await extractFormFieldsWithGemini(pdfPages);
+  console.log('[Document Router] Using Azure Document Intelligence for form extraction (NO FALLBACK)');
   const qualityAssessment = await assessDocumentQuality(pdfBuffer);
+  console.log(
+    `[Document Router] Quality assessment: ${qualityAssessment.quality} (score: ${qualityAssessment.score})`
+  );
+  const azureResult = await extractFormFieldsWithLayout(pdfBuffer);
   return {
-    fields: geminiResult.fields,
-    extractionMethod: geminiResult.extractionMethod,
-    overallConfidence: geminiResult.overallConfidence,
-    pageCount: geminiResult.pageCount,
-    processingTime: geminiResult.processingTime,
+    fields: azureResult.fields,
+    extractionMethod: azureResult.extractionMethod,
+    overallConfidence: azureResult.overallConfidence,
+    pageCount: azureResult.pageCount,
+    processingTime: azureResult.processingTime,
     qualityAssessment,
   };
 }
