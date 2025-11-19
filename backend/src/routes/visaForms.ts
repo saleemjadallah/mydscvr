@@ -288,13 +288,18 @@ router.post('/analyze-pdf', async (req: Request, res: Response) => {
       value: field.value || '',
       confidence: field.confidence,
       fieldType: field.type,
-      pageNumber: 1, // Azure doesn't provide page number easily, would need additional logic
+      pageNumber: 1, // Azure doesn't provide page number easily in key-value pairs without bounding region analysis
     }));
 
     return res.json({
       success: true,
       data: {
         fields,
+        queryResults: extractionResult.queryResults || [],
+        tables: extractionResult.tables || [],
+        selectionMarks: extractionResult.selectionMarks || [],
+        barcodes: extractionResult.barcodes || [],
+        markdownOutput: extractionResult.markdownOutput || '',
         totalFields: fields.length,
         pagesAnalyzed: extractionResult.pageCount,
         extractionMethod: extractionResult.extractionMethod,

@@ -1,4 +1,8 @@
-import { DocumentAnalysisClient, AzureKeyCredential } from '@azure/ai-form-recognizer';
+import {
+  DocumentAnalysisClient,
+  AzureKeyCredential,
+  AnalyzeResult,
+} from '@azure/ai-form-recognizer';
 
 // Azure Document Intelligence Configuration
 const endpoint = process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT || '';
@@ -27,40 +31,185 @@ export interface ExtractedField {
   label: string;
   value: string;
   confidence: number;
-  type: 'text' | 'date' | 'number' | 'checkbox' | 'signature';
+  type: 'text' | 'date' | 'number' | 'checkbox' | 'signature' | 'selectionMark';
   boundingBox?: number[];
+}
+
+export interface ExtractedTable {
+  rowCount: number;
+  columnCount: number;
+  cells: Array<{
+    rowIndex: number;
+    columnIndex: number;
+    content: string;
+    kind: 'content' | 'columnHeader' | 'rowHeader' | 'stubHead';
+  }>;
+}
+
+export interface ExtractedSelectionMark {
+  state: 'selected' | 'unselected';
+  confidence: number;
+  boundingBox?: number[];
+}
+
+export interface ExtractedBarcode {
+  value: string;
+  kind: string;
+  confidence: number;
+}
+
+export interface ExtractedLanguage {
+  locale: string;
+  confidence: number;
+}
+
+export interface DocumentMetadata {
+  pageCount: number;
+  languages: ExtractedLanguage[];
+  hasHandwriting: boolean;
+  overallConfidence: number;
 }
 
 // Document extraction result
 export interface DocumentExtractionResult {
   fields: ExtractedField[];
+  queryResults: Array<{ field: string; value: string; confidence: number }>;
+  tables: ExtractedTable[];
+  selectionMarks: ExtractedSelectionMark[];
+  barcodes: ExtractedBarcode[];
+  metadata: DocumentMetadata;
+  markdownOutput: string;
   extractionMethod: 'azure_layout' | 'azure_prebuilt_id';
-  overallConfidence: number;
-  pageCount: number;
   processingTime: number;
 }
 
-/**
- * Extract form fields from a PDF using Azure Document Intelligence Layout model
- * Best for general visa forms, applications, and documents
- */
-export async function extractFormFieldsWithLayout(
-  pdfBuffer: Buffer
-): Promise<DocumentExtractionResult> {
-  const startTime = Date.now();
+export interface FormTemplate {
+  queryFields: string[];
+}
 
-  try {
-    const client = getClient();
+export class AzureFormExtractor {
+  private client: DocumentAnalysisClient;
 
-    // Use the prebuilt layout model
-    const poller = await client.beginAnalyzeDocument('prebuilt-layout', pdfBuffer);
-    const result = await poller.pollUntilDone();
+  constructor() {
+    this.client = getClient();
+  }
 
+  // Main extraction pipeline
+  async extractVisaForm(
+    file: Buffer,
+    formTemplate?: FormTemplate
+  ): Promise<DocumentExtractionResult> {
+    const startTime = Date.now();
+
+    // Determine features based on document
+    // Note: In the JS SDK, features are passed as strings in the options
+    const features: string[] = [
+      'keyValuePairs',
+      'languages',
+      'barcodes',
+      'ocr.font',
+      'styles'
+    ];
+
+    // Add query fields if we have template
+    let queryFields: string[] = [];
+    if (formTemplate && formTemplate.queryFields.length > 0) {
+      queryFields = formTemplate.queryFields;
+      features.push('queryFields');
+    }
+
+    console.log(`[AzureFormExtractor] Analyzing document with features: ${features.join(', ')}`);
+
+    // Analyze document
+    // @ts-ignore - The SDK types might not be fully up to date with all features, but they are supported by the service
+    const poller = await this.client.beginAnalyzeDocument(
+      "prebuilt-layout",
+      file,
+      {
+        features: features as any, // Cast to any to bypass strict type checking if SDK is older
+        queryFields: queryFields.length > 0 ? queryFields : undefined
+      }
+    );
+
+    const analyzeResult = await poller.pollUntilDone();
+
+    // Check for handwriting
+    const hasHandwriting = analyzeResult.styles?.some(
+      s => s.isHandwritten
+    );
+
+    const result: DocumentExtractionResult = {
+      // Key-value pairs
+      fields: this.extractKeyValuePairs(analyzeResult),
+
+      // Query field results
+      queryResults: this.extractQueryResults(analyzeResult),
+
+      // Tables (travel history, employment, etc.)
+      tables: this.extractTables(analyzeResult),
+
+      // Checkboxes and radio buttons
+      selectionMarks: this.extractSelectionMarks(analyzeResult),
+
+      // Barcodes
+      barcodes: this.extractBarcodes(analyzeResult),
+
+      // Metadata
+      metadata: {
+        pageCount: analyzeResult.pages?.length || 0,
+        languages: this.extractLanguages(analyzeResult),
+        hasHandwriting: !!hasHandwriting,
+        overallConfidence: this.calculateOverallConfidence(analyzeResult)
+      },
+
+      markdownOutput: this.generateMarkdownOutput(analyzeResult),
+      extractionMethod: 'azure_layout',
+      processingTime: Date.now() - startTime
+    };
+
+    return result;
+  }
+
+  // Handle poor quality scans
+  async extractWithHighResolution(file: Buffer): Promise<DocumentExtractionResult> {
+    const startTime = Date.now();
+    console.log('[AzureFormExtractor] Analyzing document with High Resolution OCR...');
+
+    // @ts-ignore
+    const poller = await this.client.beginAnalyzeDocument(
+      "prebuilt-layout",
+      file,
+      {
+        features: [
+          'ocr.highResolution',
+          'keyValuePairs'
+        ] as any
+      }
+    );
+
+    const analyzeResult = await poller.pollUntilDone();
+
+    return {
+      fields: this.extractKeyValuePairs(analyzeResult),
+      queryResults: [],
+      tables: this.extractTables(analyzeResult),
+      selectionMarks: this.extractSelectionMarks(analyzeResult),
+      barcodes: [],
+      metadata: {
+        pageCount: analyzeResult.pages?.length || 0,
+        languages: [],
+        hasHandwriting: false, // Not checking styles here
+        overallConfidence: this.calculateOverallConfidence(analyzeResult)
+      },
+      markdownOutput: this.generateMarkdownOutput(analyzeResult),
+      extractionMethod: 'azure_layout',
+      processingTime: Date.now() - startTime
+    };
+  }
+
+  private extractKeyValuePairs(result: AnalyzeResult): ExtractedField[] {
     const fields: ExtractedField[] = [];
-    let totalConfidence = 0;
-    let fieldCount = 0;
 
-    // Extract key-value pairs (form fields)
     if (result.keyValuePairs) {
       for (const kvp of result.keyValuePairs) {
         if (kvp.key && kvp.value) {
@@ -69,7 +218,6 @@ export async function extractFormFieldsWithLayout(
           const confidence = kvp.confidence || 0;
 
           if (label && value) {
-            // Convert Point2D[] to number[] if polygon exists
             const polygon = kvp.key.boundingRegions?.[0]?.polygon;
             const boundingBox = polygon?.map((point) => [point.x, point.y]).flat();
 
@@ -80,53 +228,202 @@ export async function extractFormFieldsWithLayout(
               type: inferFieldType(value),
               boundingBox,
             });
+          }
+        }
+      }
+    }
+    return fields;
+  }
 
-            totalConfidence += confidence;
-            fieldCount++;
+  private extractQueryResults(result: AnalyzeResult): Array<{ field: string; value: string; confidence: number }> {
+    const queryResults: Array<{ field: string; value: string; confidence: number }> = [];
+
+    // Note: The SDK structure for query fields might vary.
+    // Usually they appear in documents[0].fields if using prebuilt-layout with queryFields
+    // Or in a specific property if using the latest API version.
+    // We'll check documents[0].fields for now as that's common for custom/query fields.
+
+    if (result.documents && result.documents.length > 0) {
+      const doc = result.documents[0];
+      if (doc.fields) {
+        for (const [key, field] of Object.entries(doc.fields)) {
+          // Filter out standard fields if any, though prebuilt-layout usually doesn't have them unless query fields are used
+          if (field) {
+            queryResults.push({
+              field: key,
+              value: field.content || '',
+              confidence: Math.round((field.confidence || 0) * 100)
+            });
           }
         }
       }
     }
 
-    // Also extract tables if present
+    return queryResults;
+  }
+
+  private extractTables(result: AnalyzeResult): ExtractedTable[] {
+    const tables: ExtractedTable[] = [];
+
     if (result.tables) {
       for (const table of result.tables) {
-        for (const cell of table.cells) {
-          if (cell.kind === 'columnHeader' && table.cells.length > cell.columnIndex + 1) {
-            // Try to match column headers with cell values
-            const headerContent = cell.content || '';
-            if (headerContent) {
-              fields.push({
-                label: headerContent.trim(),
-                value: '', // Tables need special handling
-                confidence: 80, // Default confidence for table headers
-                type: 'text',
-              });
-            }
+        tables.push({
+          rowCount: table.rowCount,
+          columnCount: table.columnCount,
+          cells: table.cells.map(cell => ({
+            rowIndex: cell.rowIndex,
+            columnIndex: cell.columnIndex,
+            content: cell.content,
+            kind: (cell.kind || 'content') as 'content' | 'columnHeader' | 'rowHeader' | 'stubHead'
+          }))
+        });
+      }
+    }
+    return tables;
+  }
+
+  private extractSelectionMarks(result: AnalyzeResult): ExtractedSelectionMark[] {
+    const marks: ExtractedSelectionMark[] = [];
+
+    // Selection marks can be found in pages
+    if (result.pages) {
+      for (const page of result.pages) {
+        if (page.selectionMarks) {
+          for (const mark of page.selectionMarks) {
+            marks.push({
+              state: (mark.state || 'unselected') as 'selected' | 'unselected',
+              confidence: Math.round(mark.confidence * 100),
+              boundingBox: mark.polygon ? mark.polygon.map(p => [p.x, p.y]).flat() : undefined
+            });
+          }
+        }
+      }
+    }
+    return marks;
+  }
+
+  private extractBarcodes(result: AnalyzeResult): ExtractedBarcode[] {
+    const barcodes: ExtractedBarcode[] = [];
+
+    if (result.pages) {
+      for (const page of result.pages) {
+        if (page.barcodes) {
+          for (const barcode of page.barcodes) {
+            barcodes.push({
+              value: barcode.value,
+              kind: barcode.kind,
+              confidence: Math.round(barcode.confidence * 100)
+            });
+          }
+        }
+      }
+    }
+    return barcodes;
+  }
+
+  private extractLanguages(result: AnalyzeResult): ExtractedLanguage[] {
+    const languages: ExtractedLanguage[] = [];
+
+    // Languages are usually returned in the analyze result top level or pages
+    if (result.languages) {
+      for (const lang of result.languages) {
+        languages.push({
+          locale: lang.locale,
+          confidence: Math.round(lang.confidence * 100)
+        });
+      }
+    }
+    return languages;
+  }
+
+  private calculateOverallConfidence(result: AnalyzeResult): number {
+    let totalConfidence = 0;
+    let count = 0;
+
+    // Average of word confidences is a good proxy for OCR quality
+    if (result.pages) {
+      for (const page of result.pages) {
+        if (page.words) {
+          for (const word of page.words) {
+            totalConfidence += word.confidence;
+            count++;
           }
         }
       }
     }
 
-    const overallConfidence = fieldCount > 0 ? Math.round((totalConfidence / fieldCount) * 100) : 0;
-    const processingTime = Date.now() - startTime;
-
-    return {
-      fields,
-      extractionMethod: 'azure_layout',
-      overallConfidence,
-      pageCount: result.pages?.length || 1,
-      processingTime,
-    };
-  } catch (error) {
-    console.error('Azure Document Intelligence extraction failed:', error);
-    throw new Error(`Azure extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    if (count === 0) return 0;
+    return Math.round((totalConfidence / count) * 100);
   }
+
+  private generateMarkdownOutput(result: AnalyzeResult): string {
+    let markdown = '# Extracted Form Data\n\n';
+
+    // Add Key-Value Pairs
+    if (result.keyValuePairs && result.keyValuePairs.length > 0) {
+      markdown += '## Fields\n\n';
+      for (const kvp of result.keyValuePairs) {
+        if (kvp.key && kvp.value) {
+          markdown += `- **${kvp.key.content}**: ${kvp.value.content}\n`;
+        }
+      }
+      markdown += '\n';
+    }
+
+    // Add Tables
+    if (result.tables && result.tables.length > 0) {
+      markdown += '## Tables\n\n';
+      for (const table of result.tables) {
+        // Simple markdown table generation
+        // This is a basic approximation
+        markdown += `### Table (Rows: ${table.rowCount}, Cols: ${table.columnCount})\n\n`;
+
+        // Group cells by row
+        const rows: string[][] = Array(table.rowCount).fill(null).map(() => Array(table.columnCount).fill(''));
+        for (const cell of table.cells) {
+          rows[cell.rowIndex][cell.columnIndex] = cell.content.replace(/\n/g, ' ');
+        }
+
+        // Header row
+        markdown += '| ' + rows[0].join(' | ') + ' |\n';
+        markdown += '| ' + rows[0].map(() => '---').join(' | ') + ' |\n';
+
+        // Data rows
+        for (let i = 1; i < rows.length; i++) {
+          markdown += '| ' + rows[i].join(' | ') + ' |\n';
+        }
+        markdown += '\n';
+      }
+    }
+
+    // Add Query Fields
+    if (result.documents && result.documents.length > 0 && result.documents[0].fields) {
+      markdown += '## Query Results\n\n';
+      for (const [key, field] of Object.entries(result.documents[0].fields)) {
+        if (field) {
+          markdown += `- **${key}**: ${field.content}\n`;
+        }
+      }
+    }
+
+    return markdown;
+  }
+}
+
+// Export singleton instance or helper functions for backward compatibility
+export const azureFormExtractor = new AzureFormExtractor();
+
+/**
+ * Backward compatible function for existing code
+ */
+export async function extractFormFieldsWithLayout(
+  pdfBuffer: Buffer
+): Promise<DocumentExtractionResult> {
+  return azureFormExtractor.extractVisaForm(pdfBuffer);
 }
 
 /**
  * Extract passport/ID information using Azure's prebuilt ID model
- * Best for passport extraction with high accuracy
  */
 export async function extractPassportWithPrebuilt(
   imageBuffer: Buffer
@@ -172,9 +469,18 @@ export async function extractPassportWithPrebuilt(
 
     return {
       fields,
+      queryResults: [],
+      tables: [],
+      selectionMarks: [],
+      barcodes: [],
+      metadata: {
+        pageCount: result.pages?.length || 1,
+        languages: [],
+        hasHandwriting: false,
+        overallConfidence
+      },
+      markdownOutput: '', // Could generate if needed
       extractionMethod: 'azure_prebuilt_id',
-      overallConfidence,
-      pageCount: result.pages?.length || 1,
       processingTime,
     };
   } catch (error) {
@@ -255,9 +561,6 @@ export async function assessDocumentQuality(pdfBuffer: Buffer): Promise<{
         reasons.push('Low extraction confidence');
       }
     }
-
-    // Note: Handwriting detection not available in current Azure SDK version
-    // Could be added in future versions or via alternative methods
 
     // Determine quality level
     let quality: 'high' | 'medium' | 'low';

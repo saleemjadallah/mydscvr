@@ -9,9 +9,11 @@
 
 import {
   isAzureConfigured,
-  extractFormFieldsWithLayout,
-  extractPassportWithPrebuilt,
+  azureFormExtractor,
   assessDocumentQuality,
+  ExtractedTable,
+  ExtractedSelectionMark,
+  ExtractedBarcode
 } from './azureDocumentIntelligence.js';
 import {
   extractFormFieldsWithGemini,
@@ -25,12 +27,17 @@ export interface ExtractedField {
   label: string;
   value: string;
   confidence: number;
-  type: 'text' | 'date' | 'number' | 'checkbox' | 'signature';
+  type: 'text' | 'date' | 'number' | 'checkbox' | 'signature' | 'selectionMark';
   boundingBox?: number[];
 }
 
 export interface ExtractionResult {
   fields: ExtractedField[];
+  queryResults?: Array<{ field: string; value: string; confidence: number }>;
+  tables?: ExtractedTable[];
+  selectionMarks?: ExtractedSelectionMark[];
+  barcodes?: ExtractedBarcode[];
+  markdownOutput?: string;
   extractionMethod: 'azure_layout' | 'azure_prebuilt_id' | 'gemini_flash';
   overallConfidence: number;
   pageCount: number;
@@ -70,12 +77,17 @@ async function extractPassportDocument(pdfBuffer: Buffer): Promise<ExtractionRes
   if (isAzureConfigured()) {
     try {
       console.log('[Document Router] Using Azure Prebuilt ID model for passport extraction');
+      // Note: extractPassportWithPrebuilt is also available via azureFormExtractor if we moved it, 
+      // but for now we kept the standalone function in the file or we can use the one we exported.
+      // Let's use the one from the module imports if we exported it, or we can use azureFormExtractor if we added it there.
+      // In my previous edit I kept extractPassportWithPrebuilt as a standalone export in azureDocumentIntelligence.ts
+      const { extractPassportWithPrebuilt } = await import('./azureDocumentIntelligence.js');
       const azureResult = await extractPassportWithPrebuilt(pdfBuffer);
       return {
         fields: azureResult.fields,
         extractionMethod: azureResult.extractionMethod,
-        overallConfidence: azureResult.overallConfidence,
-        pageCount: azureResult.pageCount,
+        overallConfidence: azureResult.metadata.overallConfidence,
+        pageCount: azureResult.metadata.pageCount,
         processingTime: azureResult.processingTime,
       };
     } catch (azureError) {
@@ -88,7 +100,7 @@ async function extractPassportDocument(pdfBuffer: Buffer): Promise<ExtractionRes
   const pdfPages = await convertPDFToBase64Images(pdfBuffer);
   const geminiResult = await extractFormFieldsWithGemini(pdfPages);
   return {
-    fields: geminiResult.fields,
+    fields: geminiResult.fields as ExtractedField[],
     extractionMethod: geminiResult.extractionMethod,
     overallConfidence: geminiResult.overallConfidence,
     pageCount: geminiResult.pageCount,
@@ -110,12 +122,20 @@ async function extractVisaForm(pdfBuffer: Buffer): Promise<ExtractionResult> {
   console.log(
     `[Document Router] Quality assessment: ${qualityAssessment.quality} (score: ${qualityAssessment.score})`
   );
-  const azureResult = await extractFormFieldsWithLayout(pdfBuffer);
+
+  // Use the new AzureFormExtractor
+  const azureResult = await azureFormExtractor.extractVisaForm(pdfBuffer);
+
   return {
     fields: azureResult.fields,
+    queryResults: azureResult.queryResults,
+    tables: azureResult.tables,
+    selectionMarks: azureResult.selectionMarks,
+    barcodes: azureResult.barcodes,
+    markdownOutput: azureResult.markdownOutput,
     extractionMethod: azureResult.extractionMethod,
-    overallConfidence: azureResult.overallConfidence,
-    pageCount: azureResult.pageCount,
+    overallConfidence: azureResult.metadata.overallConfidence,
+    pageCount: azureResult.metadata.pageCount,
     processingTime: azureResult.processingTime,
     qualityAssessment,
   };

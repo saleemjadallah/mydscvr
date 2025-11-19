@@ -108,6 +108,11 @@ router.post('/extract', requireAuth, upload.single('pdf'), async (req: Request, 
         metadata,
         extraction: {
           fields: extractionResult.fields,
+          queryResults: extractionResult.queryResults || [],
+          tables: extractionResult.tables || [],
+          selectionMarks: extractionResult.selectionMarks || [],
+          barcodes: extractionResult.barcodes || [],
+          markdownOutput: extractionResult.markdownOutput || '',
           method: extractionResult.extractionMethod,
           confidence: extractionResult.overallConfidence,
           pageCount: extractionResult.pageCount,
@@ -316,10 +321,10 @@ router.post('/:id/validate', requireAuth, async (req: Request, res: Response) =>
     const zodIssues = zodValidation.success
       ? []
       : zodValidation.error.issues.map((issue) => ({
-          field: issue.path.join('.'),
-          message: issue.message,
-          severity: 'error' as const,
-        }));
+        field: issue.path.join('.'),
+        message: issue.message,
+        severity: 'error' as const,
+      }));
 
     // Tier 2: Rules engine validation
     const rulesResult = await validateFormData(formData, destinationCountry, travelDate);
@@ -377,11 +382,11 @@ router.post('/:id/validate', requireAuth, async (req: Request, res: Response) =>
         reviewItems: processingResult.reviewItems,
         aiValidation: aiValidation
           ? {
-              used: true,
-              confidence: aiValidation.overallConfidence,
-              suggestions: aiValidation.suggestions,
-              contradictions: aiValidation.contradictions,
-            }
+            used: true,
+            confidence: aiValidation.overallConfidence,
+            suggestions: aiValidation.suggestions,
+            contradictions: aiValidation.contradictions,
+          }
           : { used: false },
       },
     });
