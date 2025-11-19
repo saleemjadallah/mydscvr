@@ -1,6 +1,7 @@
 [phases.setup]
 # Native dependencies for canvas, sharp, and pdf processing
 nixPkgs = [
+  "nodejs-18_x",
   "pkg-config",
   "cairo",
   "pango",
