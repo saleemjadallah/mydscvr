@@ -117,6 +117,7 @@ router.post('/extract', requireAuth, upload.single('pdf'), async (req: Request, 
           confidence: extractionResult.overallConfidence,
           pageCount: extractionResult.pageCount,
           processingTime: extractionResult.processingTime,
+          smartAnalysis: extractionResult.smartAnalysis,
         },
       },
     });

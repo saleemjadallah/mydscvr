@@ -18,6 +18,7 @@ import {
 import {
   extractFormFieldsWithGemini,
 } from './geminiVision.js';
+import { smartDocumentProcessor, SmartProcessingResult } from './smartDocumentProcessor.js';
 import { createCanvas, Canvas, CanvasRenderingContext2D } from 'canvas';
 
 
@@ -47,6 +48,7 @@ export interface ExtractionResult {
     score: number;
     reasons: string[];
   };
+  smartAnalysis?: SmartProcessingResult;
 }
 
 export type DocumentType = 'visa_form' | 'passport' | 'supporting_doc';
@@ -126,6 +128,10 @@ async function extractVisaForm(pdfBuffer: Buffer): Promise<ExtractionResult> {
   // Use the new AzureFormExtractor
   const azureResult = await azureFormExtractor.extractVisaForm(pdfBuffer);
 
+  // Apply Smart Document Processing
+  console.log('[Document Router] Applying Smart Document Processing...');
+  const smartAnalysis = smartDocumentProcessor.process(azureResult);
+
   return {
     fields: azureResult.fields,
     queryResults: azureResult.queryResults,
@@ -138,6 +144,7 @@ async function extractVisaForm(pdfBuffer: Buffer): Promise<ExtractionResult> {
     pageCount: azureResult.metadata.pageCount,
     processingTime: azureResult.processingTime,
     qualityAssessment,
+    smartAnalysis,
   };
 }
 
