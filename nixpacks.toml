@@ -14,7 +14,8 @@ nixLibs = [
   "librsvg",
   "libuuid",
   "pixman",
-  "freetype"
+  "freetype",
+  "glib"
 ]
 
 [phases.install]
