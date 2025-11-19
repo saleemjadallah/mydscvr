@@ -5,6 +5,7 @@
 import { Router, Request, Response } from 'express';
 import OpenAI from 'openai';
 import { extractFormFields, type DocumentType } from '../lib/documentRouter.js';
+import { extractPDFFormFields, generateFieldLabel, correlateFields } from '../lib/pdfFieldExtractor.js';
 import { redis } from '../lib/redis.js';
 
 const router = Router();
@@ -358,6 +359,101 @@ router.post('/reanalyze-field', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to re-analyze field'
+    });
+  }
+});
+
+/**
+ * POST /api/visadocs/forms/extract-fields
+ * Extract form field definitions directly from PDF structure
+ * Bypasses visual overlays to get actual fillable field names
+ */
+router.post('/extract-fields', async (req: Request, res: Response) => {
+  try {
+    const { pdfBuffer, useAzure = false } = req.body;
+
+    if (!pdfBuffer) {
+      return res.status(400).json({
+        success: false,
+        error: 'pdfBuffer is required (Buffer or base64 encoded PDF)'
+      });
+    }
+
+    console.log(`[VisaForms] Extracting PDF form fields (useAzure: ${useAzure})`);
+
+    // Convert base64 to buffer if needed
+    let buffer: Buffer;
+    if (typeof pdfBuffer === 'string') {
+      const base64Data = pdfBuffer.replace(/^data:application\/pdf;base64,/, '');
+      buffer = Buffer.from(base64Data, 'base64');
+    } else if (Buffer.isBuffer(pdfBuffer)) {
+      buffer = pdfBuffer;
+    } else if (pdfBuffer.type === 'Buffer' && Array.isArray(pdfBuffer.data)) {
+      buffer = Buffer.from(pdfBuffer.data);
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid pdfBuffer format'
+      });
+    }
+
+    // Extract form field definitions directly from PDF
+    const pdfStructure = await extractPDFFormFields(buffer);
+
+    console.log(`[VisaForms] Extracted ${pdfStructure.totalFields} form fields from PDF structure`);
+    console.log(`[VisaForms] Has visual overlays: ${pdfStructure.hasOverlays}`);
+
+    // Generate readable labels for each field
+    const fieldsWithLabels = pdfStructure.fields.map((field, index) => ({
+      fieldNumber: index + 1,
+      fieldName: field.name,
+      label: generateFieldLabel(field.name),
+      type: field.type,
+      value: field.value || '',
+      readOnly: field.readOnly,
+      required: field.required,
+      maxLength: field.maxLength,
+    }));
+
+    // Optionally combine with Azure Document Intelligence results
+    let correlationResults;
+    if (useAzure) {
+      try {
+        console.log('[VisaForms] Running Azure Document Intelligence for correlation...');
+        const documentType: DocumentType = 'visa_form';
+        const extractionResult = await extractFormFields(buffer, documentType);
+
+        correlationResults = correlateFields(
+          pdfStructure.fields,
+          extractionResult.fields.map(f => ({
+            label: f.label,
+            value: f.value,
+            confidence: f.confidence
+          }))
+        );
+
+        console.log(`[VisaForms] Correlated ${correlationResults.filter(c => c.matched).length}/${correlationResults.length} fields with Azure results`);
+      } catch (azureError) {
+        console.warn('[VisaForms] Azure correlation failed:', azureError);
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        fields: fieldsWithLabels,
+        totalFields: pdfStructure.totalFields,
+        pageCount: pdfStructure.pageCount,
+        hasOverlays: pdfStructure.hasOverlays,
+        correlation: correlationResults,
+        extractedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('[VisaForms] Field extraction error:', error);
+    return res.status(500).json({
+      success: false,
+      error: `Failed to extract form fields: ${error instanceof Error ? error.message : 'Unknown error'}`
     });
   }
 });
