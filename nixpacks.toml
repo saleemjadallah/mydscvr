@@ -15,8 +15,7 @@ nixPkgs = [
   "libuuid"
 ]
 
-[phases.setup.aptPkgs]
-packages = ["libuuid1", "libglib2.0-0", "libsm6", "libxext6", "libxrender1"]
+aptPkgs = ["libuuid1", "libglib2.0-0", "libsm6", "libxext6", "libxrender1"]
 
 [phases.install]
 cmds = ["cd backend && npm ci"]
