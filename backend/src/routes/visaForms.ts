@@ -316,51 +316,15 @@ router.post('/analyze-pdf', async (req: Request, res: Response) => {
 
 /**
  * POST /api/visadocs/forms/reanalyze-field
- * Re-analyze a specific field using Gemini Vision for disagreement cases
+ * DISABLED: This endpoint uses Gemini Vision which is disabled for Azure-only testing
  */
-router.post('/reanalyze-field', async (req: Request, res: Response) => {
-  try {
-    const { pageImage, fieldIndex, currentLabel, visaType: _visaType } = req.body;
+router.post('/reanalyze-field', async (_req: Request, res: Response) => {
+  console.log('[VisaForms] Reanalyze-field endpoint called - DISABLED for Azure-only testing');
 
-    if (!pageImage) {
-      return res.status(400).json({
-        success: false,
-        error: 'pageImage is required (base64 encoded PNG image)'
-      });
-    }
-
-    console.log(`[VisaForms] Re-analyzing field #${fieldIndex}, current label: "${currentLabel}"`);
-
-    // Re-analyze just this one page with focus on the specific field
-    const { analyzePDFFormFields } = await import('../lib/geminiVision.js');
-    const fields = await analyzePDFFormFields(
-      pageImage,
-      1, // Single page
-      1, // Total pages = 1 for focused analysis
-      1  // Focus on single field area
-    );
-
-    // Find the field closest to the requested index
-    const targetField = fields.find(f => f.fieldNumber === fieldIndex) || fields[0];
-
-    return res.json({
-      success: true,
-      data: {
-        fieldIndex,
-        previousLabel: currentLabel,
-        newLabel: targetField?.label || currentLabel,
-        confidence: targetField?.confidence || 0.5,
-        fieldType: targetField?.fieldType || 'text',
-        analyzedAt: new Date().toISOString(),
-      },
-    });
-  } catch (error) {
-    console.error('[VisaForms] Field re-analysis error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to re-analyze field'
-    });
-  }
+  return res.status(503).json({
+    success: false,
+    error: 'Field re-analysis is temporarily disabled for Azure Document Intelligence testing. Use /extract-fields instead.'
+  });
 });
 
 /**
@@ -460,46 +424,15 @@ router.post('/extract-fields', async (req: Request, res: Response) => {
 
 /**
  * POST /api/visadocs/forms/analyze-validation
- * Analyze a visa form using Gemini Vision for validation insights
+ * DISABLED: This endpoint uses Gemini Vision which is disabled for Azure-only testing
  */
-router.post('/analyze-validation', async (req: Request, res: Response) => {
-  try {
-    const { pageImages, prompt, country } = req.body;
+router.post('/analyze-validation', async (_req: Request, res: Response) => {
+  console.log('[VisaForms] Validation endpoint called - DISABLED for Azure-only testing');
 
-    if (!pageImages || !Array.isArray(pageImages) || pageImages.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'pageImages array is required (base64 encoded PNG images)'
-      });
-    }
-
-    console.log(`[VisaForms] Analyzing form for validation - ${pageImages.length} pages, country: ${country}`);
-
-    // Use Gemini Vision for analysis
-    const { analyzeFormForValidation } = await import('../lib/geminiVision.js');
-
-    const validationResult = await analyzeFormForValidation(
-      pageImages,
-      prompt,
-      country || ''
-    );
-
-    console.log(`[VisaForms] Validation analysis complete`);
-
-    return res.json({
-      success: true,
-      data: {
-        validation: validationResult,
-        analyzedAt: new Date().toISOString(),
-      },
-    });
-  } catch (error) {
-    console.error('[VisaForms] Form validation analysis error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to analyze form for validation. Please try again.'
-    });
-  }
+  return res.status(503).json({
+    success: false,
+    error: 'Validation analysis is temporarily disabled for Azure Document Intelligence testing. Use /analyze-pdf or /extract-fields instead.'
+  });
 });
 
 export default router;
