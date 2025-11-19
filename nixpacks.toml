@@ -12,12 +12,11 @@ nixPkgs = [
   "libjpeg",
   "giflib",
   "librsvg",
-  "libuuid",
-  "util-linux"
+  "libuuid"
 ]
 
 [phases.install]
-cmds = ["cd backend && npm ci"]
+cmds = ["cd backend && npm ci && npm rebuild canvas --build-from-source"]
 
 [phases.build]
 cmds = ["cd backend && npm run build"]
