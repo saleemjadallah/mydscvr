@@ -6,9 +6,41 @@
  */
 
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
+import dotenv from 'dotenv';
 import axios from 'axios';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+dotenv.config();
+
+// Initialize Gemini API
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+
+/**
+ * Helper to clean and parse JSON from AI response
+ */
+function cleanAndParseJSON<T>(text: string): T | null {
+  try {
+    // 1. Remove markdown code blocks
+    let cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+
+    // 2. Find the first '{' and last '}' to isolate the JSON object
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+    }
+
+    // 3. Remove potential trailing commas (simple regex approach)
+    // This removes commas before closing braces/brackets
+    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+
+    return JSON.parse(cleaned) as T;
+  } catch (error) {
+    console.error('[Gemini Vision] JSON parse error:', error);
+    console.debug('[Gemini Vision] Failed JSON text:', text);
+    return null;
+  }
+}
 
 interface PhotoAnalysisResult {
   compliant: boolean;
@@ -473,13 +505,12 @@ IMPORTANT:
     const response = result.response;
     const text = response.text();
 
-    // Parse JSON response
-    const cleanedText = text
-      .replace(/```json\n?/g, '')
-      .replace(/```\n?/g, '')
-      .trim();
+    const analysis = cleanAndParseJSON<{ fields: PDFFormField[] }>(text);
 
-    const analysis = JSON.parse(cleanedText);
+    if (!analysis || !analysis.fields) {
+      console.warn(`[Gemini Vision] Failed to parse fields from page ${pageNumber}`);
+      return [];
+    }
 
     console.log(`[Gemini Vision] Found ${analysis.fields.length} fields on page ${pageNumber}`);
 
@@ -666,13 +697,11 @@ IMPORTANT:
 
     const responseText = result.response.text();
 
-    // Parse JSON response
-    const cleanedText = responseText
-      .replace(/```json\n?/g, '')
-      .replace(/```\n?/g, '')
-      .trim();
+    const analysis = cleanAndParseJSON<{ fields: GeminiExtractedField[] }>(responseText);
 
-    const analysis = JSON.parse(cleanedText);
+    if (!analysis) {
+      throw new Error('Failed to parse Gemini extraction response');
+    }
 
     // Calculate overall confidence
     const fields: GeminiExtractedField[] = analysis.fields || [];
@@ -759,10 +788,10 @@ export async function analyzeFormForValidation(
     const responseText = result.response.text();
     console.log('[Gemini Vision] Validation analysis response received');
 
-    // Parse JSON from response
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsedResult = JSON.parse(jsonMatch[0]) as FormValidationResult;
+    // Parse JSON from response using robust helper
+    const parsedResult = cleanAndParseJSON<FormValidationResult>(responseText);
+
+    if (parsedResult) {
 
       // Ensure all required fields are present
       return {
