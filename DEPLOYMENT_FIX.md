@@ -257,14 +257,42 @@ If deployment fails:
 
 ---
 
+## ✅ Schema Fixes Applied (Nov 19, 2025)
+
+**Status: COMPLETED**
+
+The following schema mismatches were fixed in production database:
+
+### employment_profiles table:
+- ✅ `company_name` → `employer_name`
+- ✅ `company_address` → `employer_address`
+- ✅ `job_duties` → `department`
+- ✅ `monthly_salary` type changed from numeric → text
+
+### Missing columns (will be auto-added by Drizzle):
+- `employer_phone`
+- `employer_email`
+- `employer_website`
+- `currency`
+- `responsibilities`
+- `supervisor_title`
+- `supervisor_email`
+
+**Scripts created:**
+- `backend/scripts/fix-schema-columns.ts` - Initial column renames
+- `backend/scripts/fix-all-schema-mismatches.ts` - Comprehensive fix
+- `backend/scripts/rollback-and-fix-properly.ts` - Rollback helper
+
+---
+
 ## Next Steps
 
 1. ✅ Review this document
-2. ⚠️ Choose and execute a schema fix option (A, B, or C)
-3. ✅ Deploy the changes
-4. ✅ Monitor deployment logs
-5. ✅ Test application functionality
-6. ✅ Document any additional issues
+2. ✅ Schema fixes applied to production database
+3. ✅ Deploy the changes (nixpacks + Node 20)
+4. ⏳ Monitor deployment logs for canvas/libuuid errors
+5. ⏳ Test application functionality
+6. ⏳ Run db:push on next deploy to add missing columns
 
 ---
 
