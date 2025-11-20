@@ -333,7 +333,7 @@ export async function ensureTables() {
           user_id TEXT NOT NULL REFERENCES users(id),
           profile_id VARCHAR REFERENCES user_profiles(id),
           template_id VARCHAR REFERENCES form_templates(id),
-          form_data JSONB NOT NULL,
+          filled_data JSONB NOT NULL,
           pdf_url TEXT,
           status TEXT NOT NULL DEFAULT 'draft',
           submitted_at TIMESTAMP WITH TIME ZONE,
