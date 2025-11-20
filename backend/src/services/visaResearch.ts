@@ -362,6 +362,29 @@ export function generateRecommendations(
   description: string;
   action: { label: string; href: string };
 }[] {
+  const safeVisaRequirements: VisaRequirements = {
+    visaType: enrichedProfile.visaRequirements?.visaType || `${enrichedProfile.travelPurpose} Visa`,
+    processingTime: enrichedProfile.visaRequirements?.processingTime || 'Processing time varies',
+    requiredDocuments: enrichedProfile.visaRequirements?.requiredDocuments || [],
+    photoRequirements: {
+      dimensions: enrichedProfile.visaRequirements?.photoRequirements?.dimensions || 'standard passport size',
+      background: enrichedProfile.visaRequirements?.photoRequirements?.background || 'neutral background',
+      specifications: enrichedProfile.visaRequirements?.photoRequirements?.specifications || [],
+    },
+    fees: enrichedProfile.visaRequirements?.fees || '',
+    validity: enrichedProfile.visaRequirements?.validity || '',
+    additionalNotes: enrichedProfile.visaRequirements?.additionalNotes || [],
+  };
+
+  const requiredDocsCount = safeVisaRequirements.requiredDocuments.length;
+
+  const startDate = enrichedProfile.travelDates?.start ? new Date(enrichedProfile.travelDates.start) : null;
+  const endDate = enrichedProfile.travelDates?.end ? new Date(enrichedProfile.travelDates.end) : null;
+  const validDates = startDate && endDate && !Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime());
+  const tripDays = validDates
+    ? Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)))
+    : null;
+
   const recommendations: {
     priority: 'high' | 'medium' | 'low';
     title: string;
@@ -373,7 +396,7 @@ export function generateRecommendations(
   recommendations.push({
     priority: 'high',
     title: 'Validate Your Documents',
-    description: `You'll need ${enrichedProfile.visaRequirements.requiredDocuments.length} documents for your ${enrichedProfile.visaRequirements.visaType}. Let's make sure they meet all requirements.`,
+    description: `You'll need ${requiredDocsCount || 'the required'} documents for your ${safeVisaRequirements.visaType}. Let's make sure they meet all requirements.`,
     action: { label: 'Start Validation', href: '/app/validator' },
   });
 
@@ -381,19 +404,15 @@ export function generateRecommendations(
   recommendations.push({
     priority: 'high',
     title: 'Generate Compliant Photos',
-    description: `${enrichedProfile.destinationCountry} requires ${enrichedProfile.visaRequirements.photoRequirements.dimensions} photos with ${enrichedProfile.visaRequirements.photoRequirements.background} background.`,
+    description: `${enrichedProfile.destinationCountry} requires ${safeVisaRequirements.photoRequirements.dimensions} photos with ${safeVisaRequirements.photoRequirements.background} background.`,
     action: { label: 'Create Photos', href: '/app/photo-compliance' },
   });
 
   // Medium priority: Travel planning
-  const startDate = new Date(enrichedProfile.travelDates.start);
-  const endDate = new Date(enrichedProfile.travelDates.end);
-  const tripDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-
   recommendations.push({
     priority: 'medium',
     title: 'Plan Your Itinerary',
-    description: `Create a ${tripDays}-day travel plan for ${enrichedProfile.destinationCountry}. A detailed itinerary strengthens your visa application.`,
+    description: `Create a ${tripDays || 'complete'}-day travel plan for ${enrichedProfile.destinationCountry}. A detailed itinerary strengthens your visa application.`,
     action: { label: 'Create Itinerary', href: '/app/travel-planner' },
   });
 
@@ -401,7 +420,7 @@ export function generateRecommendations(
   recommendations.push({
     priority: 'medium',
     title: 'Start Your Application Form',
-    description: `Let AI auto-fill your ${enrichedProfile.visaRequirements.visaType} application with the information you've provided.`,
+    description: `Let AI auto-fill your ${safeVisaRequirements.visaType} application with the information you've provided.`,
     action: { label: 'Fill Forms', href: '/app/form-filler' },
   });
 
