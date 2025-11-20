@@ -385,11 +385,6 @@ export const filledForms = pgTable('filled_forms', {
   submittedAt: timestamp('submitted_at'),
   completedAt: timestamp('completed_at'), // When form filling was completed
   applicationNumber: text('application_number'), // If submitted
-  versionHistory: json('version_history').$type<Array<{
-    snapshotId: string;
-    savedAt: string;
-    completionPercentage: number;
-  }>>(),
 
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

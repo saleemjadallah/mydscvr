@@ -67,7 +67,13 @@ const requireAuth = (req: Request, res: Response, next: Function) => {
 
 const DRAFT_URL_TTL_SECONDS = 60 * 60; // 1 hour
 
-const buildDraftSummary = (draft: FilledForm) => ({
+type VersionSnapshot = {
+  snapshotId: string;
+  savedAt: string;
+  completionPercentage: number;
+};
+
+const buildDraftSummary = (draft: FilledForm, versions: VersionSnapshot[] = []) => ({
   id: draft.id,
   fileName: draft.formName,
   updatedAt: draft.updatedAt,
@@ -79,15 +85,54 @@ const buildDraftSummary = (draft: FilledForm) => ({
   totalFields: draft.totalFields,
   filledFields: draft.filledFields,
   status: draft.status,
-  versionHistory: (draft.versionHistory || []).slice(0, 3),
+  versionHistory: versions.slice(0, 3),
 });
 
-const buildDraftDetailResponse = async (draft: FilledForm) => {
+const fetchRecentVersions = async (formIds: string[], limit = 5) => {
+  if (!formIds.length) return new Map<string, VersionSnapshot[]>();
+
+  const versionRows = await db
+    .select({
+      formId: formDraftVersions.formId,
+      snapshotId: formDraftVersions.snapshotId,
+      savedAt: formDraftVersions.createdAt,
+      completionPercentage: formDraftVersions.completionPercentage,
+    })
+    .from(formDraftVersions)
+    .where(inArray(formDraftVersions.formId, formIds))
+    .orderBy(desc(formDraftVersions.createdAt));
+
+  const versionMap = new Map<string, VersionSnapshot[]>();
+  const counts = new Map<string, number>();
+
+  for (const row of versionRows) {
+    const currentCount = counts.get(row.formId) || 0;
+    if (currentCount >= limit) continue;
+    const list = versionMap.get(row.formId) || [];
+    list.push({
+      snapshotId: row.snapshotId,
+      savedAt: row.savedAt.toISOString(),
+      completionPercentage: row.completionPercentage,
+    });
+    versionMap.set(row.formId, list);
+    counts.set(row.formId, currentCount + 1);
+  }
+
+  return versionMap;
+};
+
+const buildDraftDetailResponse = async (draft: FilledForm, versions?: VersionSnapshot[]) => {
   let signedPdfUrl: string | null = null;
   if (draft.originalPdfUrl) {
     signedPdfUrl = await getSignedDownloadUrl(draft.originalPdfUrl, DRAFT_URL_TTL_SECONDS);
   } else if (draft.outputUrl) {
     signedPdfUrl = await getSignedDownloadUrl(draft.outputUrl, DRAFT_URL_TTL_SECONDS);
+  }
+
+  let versionHistory = versions;
+  if (!versionHistory) {
+    const map = await fetchRecentVersions([draft.id], 5);
+    versionHistory = map.get(draft.id) || [];
   }
 
   return {
@@ -98,7 +143,7 @@ const buildDraftDetailResponse = async (draft: FilledForm) => {
     updatedAt: draft.updatedAt,
     hasPdf: Boolean(draft.originalPdfUrl || draft.outputUrl),
     status: draft.status,
-    versionHistory: draft.versionHistory || [],
+    versionHistory,
   };
 };
 
@@ -819,17 +864,12 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
         savedAt: now.toISOString(),
         completionPercentage,
       };
-      const combinedVersions = [newVersion, ...(existingForm.versionHistory || [])];
-      const updatedVersions = combinedVersions.slice(0, 5);
-      const removedVersions = combinedVersions.slice(5);
-
       await db
         .update(filledForms)
         .set({
           ...baseDraftData,
           status: 'draft',
           completedAt: null,
-          versionHistory: updatedVersions,
         })
         .where(eq(filledForms.id, formId));
 
@@ -840,13 +880,9 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
         completionPercentage,
       });
 
-      if (removedVersions.length > 0) {
-        await db
-          .delete(formDraftVersions)
-          .where(and(eq(formDraftVersions.formId, formId), inArray(formDraftVersions.snapshotId, removedVersions.map((v) => v.snapshotId))));
-      }
-
       const hasPdf = Boolean(originalPdfUrl || existingForm.originalPdfUrl || existingForm.outputUrl);
+      const versionMap = await fetchRecentVersions([formId], 5);
+      const updatedVersions = versionMap.get(formId) || [];
 
       return res.json({
         success: true,
@@ -867,12 +903,6 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
         });
       }
 
-      const initialVersion = {
-        snapshotId: `version_${Date.now()}`,
-        savedAt: now.toISOString(),
-        completionPercentage,
-      };
-
       const [newForm] = await db
         .insert(filledForms)
         .values({
@@ -882,9 +912,14 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
           formName: formName || fileName || 'Draft Form',
           ...baseDraftData,
           status: 'draft',
-          versionHistory: [initialVersion],
         })
         .returning();
+
+      const initialVersion = {
+        snapshotId: `version_${Date.now()}`,
+        savedAt: now.toISOString(),
+        completionPercentage,
+      };
 
       await db.insert(formDraftVersions).values({
         formId: newForm.id,
@@ -892,6 +927,8 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
         filledData: structuredData,
         completionPercentage,
       });
+
+      const versionMap = await fetchRecentVersions([newForm.id], 5);
 
       return res.json({
         success: true,
@@ -901,7 +938,7 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
           persisted: true,
           hasPdf: true,
           versionId: initialVersion.snapshotId,
-          versions: [initialVersion],
+          versions: versionMap.get(newForm.id) || [initialVersion],
         },
       });
     }
@@ -938,10 +975,12 @@ router.get('/drafts', requireAuth, async (req: Request, res: Response) => {
       .where(and(eq(filledForms.userId, userId), eq(filledForms.status, 'draft')))
       .orderBy(desc(filledForms.updatedAt));
 
+    const versionMap = await fetchRecentVersions(drafts.map((d) => d.id), 3);
+
     res.json({
       success: true,
       data: {
-        drafts: drafts.map(buildDraftSummary),
+        drafts: drafts.map((draft) => buildDraftSummary(draft, versionMap.get(draft.id) || [])),
       },
     });
   } catch (error) {
