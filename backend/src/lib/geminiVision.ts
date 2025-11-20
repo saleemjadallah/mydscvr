@@ -17,28 +17,61 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 /**
  * Helper to clean and parse JSON from AI response
  */
+const CONTROL_CHAR_REGEX = /[\u0000-\u001F]+/g;
+
+function repairJsonStructure(text: string): string {
+  let repaired = text.trim().replace(CONTROL_CHAR_REGEX, ' ');
+
+  const countMatches = (str: string, regex: RegExp) => (str.match(regex) || []).length;
+
+  const openBraces = countMatches(repaired, /\{/g);
+  const closeBraces = countMatches(repaired, /\}/g);
+  if (closeBraces < openBraces) {
+    repaired += '}'.repeat(openBraces - closeBraces);
+  }
+
+  const openBrackets = countMatches(repaired, /\[/g);
+  const closeBrackets = countMatches(repaired, /\]/g);
+  if (closeBrackets < openBrackets) {
+    repaired += ']'.repeat(openBrackets - closeBrackets);
+  }
+
+  const quoteCount = countMatches(repaired, /"/g);
+  if (quoteCount % 2 !== 0) {
+    repaired += '"';
+  }
+
+  return repaired;
+}
+
 function cleanAndParseJSON<T>(text: string): T | null {
+  // 1. Remove markdown code blocks
+  let cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+
+  // 2. Find the first '{' and last '}' to isolate the JSON object
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  }
+
+  // 3. Remove potential trailing commas (simple regex approach)
+  cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+  cleaned = cleaned.replace(/\r?\n|\t/g, ' ');
+  cleaned = cleaned.replace(CONTROL_CHAR_REGEX, ' ');
+
   try {
-    // 1. Remove markdown code blocks
-    let cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-
-    // 2. Find the first '{' and last '}' to isolate the JSON object
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      cleaned = cleaned.substring(firstBrace, lastBrace + 1);
-    }
-
-    // 3. Remove potential trailing commas (simple regex approach)
-    // This removes commas before closing braces/brackets
-    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
-
     return JSON.parse(cleaned) as T;
-  } catch (error) {
-    console.error('[Gemini Vision] JSON parse error:', error);
-    console.debug('[Gemini Vision] Failed JSON text:', text);
-    return null;
+  } catch (primaryError) {
+    try {
+      const repaired = repairJsonStructure(cleaned);
+      return JSON.parse(repaired) as T;
+    } catch (repairError) {
+      console.error('[Gemini Vision] JSON parse error:', repairError);
+      console.debug('[Gemini Vision] Failed JSON text:', text);
+      return null;
+    }
   }
 }
 
