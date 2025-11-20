@@ -46,6 +46,10 @@ function repairJsonStructure(text: string): string {
 
 function cleanAndParseJSON<T>(text: string): T | null {
   // 1. Remove markdown code blocks
+  if (!text || !text.trim()) {
+    return null;
+  }
+
   let cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
 
   // 2. Find the first '{' and last '}' to isolate the JSON object

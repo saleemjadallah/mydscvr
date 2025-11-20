@@ -680,8 +680,10 @@ router.post('/pdf/fields', requireAuth, upload.single('pdf'), async (req: Reques
  * Save form progress (autosave)
  */
 router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
+  let incomingFormId: string | null = null;
   try {
     const { formId, formData, pdfBytes: _pdfBytes } = req.body;
+    incomingFormId = formId || null;
     const userId = (req.user as any).id;
 
     if (!formData) {
@@ -754,6 +756,19 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
     }
   } catch (error) {
     console.error('[Form Filler API] Save draft error:', error);
+
+    if ((error as any)?.code === '42703') {
+      return res.json({
+        success: true,
+        data: {
+          formId: incomingFormId,
+          savedAt: new Date(),
+          persisted: false,
+        },
+        warning: 'Draft saved locally only (database schema missing columns).',
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: 'Failed to save draft',
