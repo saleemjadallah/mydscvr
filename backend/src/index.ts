@@ -14,6 +14,7 @@ import mydscvrRouter from './routes/mydscvr/index.js';
 import onboardingRouter from './routes/onboarding.js';
 import profileRouter from './routes/profile.js';
 import formFillerRouter from './routes/formFiller.js';
+import photoRouter from './routes/photo.js';
 import { ensureTables } from './db/ensureTables.js';
 import { uploadBuffer, optimizeUploadedImage } from './lib/storage.js';
 
@@ -180,6 +181,11 @@ app.use('/api/visadocs', visadocsRouter);
 // MYDSCVR CORE FEATURES ROUTES
 // ========================================
 app.use('/api/mydscvr', mydscvrRouter);
+
+// ========================================
+// PHOTO COMPLIANCE ROUTES
+// ========================================
+app.use('/api/photo', photoRouter);
 
 // ========================================
 // ONBOARDING ROUTES

@@ -33,7 +33,7 @@ import {
 } from '../lib/reviewRouter.js';
 import { validateUserProfile } from '../lib/validationSchemas.js';
 import { db } from '../db/index.js';
-import { filledForms, userProfiles } from '../db/schema-formfiller.js';
+import { filledForms, userProfiles, type FilledForm } from '../db/schema-formfiller.js';
 import { eq, and, desc } from 'drizzle-orm';
 import { uploadToR2, getSignedDownloadUrl } from '../lib/storage.js';
 
@@ -63,6 +63,41 @@ const requireAuth = (req: Request, res: Response, next: Function) => {
     });
   }
   next();
+};
+
+const DRAFT_URL_TTL_SECONDS = 60 * 60; // 1 hour
+
+const buildDraftSummary = (draft: FilledForm) => ({
+  id: draft.id,
+  fileName: draft.formName,
+  updatedAt: draft.updatedAt,
+  createdAt: draft.createdAt,
+  completionPercentage: draft.completionPercentage,
+  country: draft.country,
+  visaType: draft.visaType,
+  hasPdf: Boolean(draft.originalPdfUrl || draft.outputUrl),
+  totalFields: draft.totalFields,
+  filledFields: draft.filledFields,
+  status: draft.status,
+});
+
+const buildDraftDetailResponse = async (draft: FilledForm) => {
+  let signedPdfUrl: string | null = null;
+  if (draft.originalPdfUrl) {
+    signedPdfUrl = await getSignedDownloadUrl(draft.originalPdfUrl, DRAFT_URL_TTL_SECONDS);
+  } else if (draft.outputUrl) {
+    signedPdfUrl = await getSignedDownloadUrl(draft.outputUrl, DRAFT_URL_TTL_SECONDS);
+  }
+
+  return {
+    formId: draft.id,
+    filledData: draft.filledData,
+    pdfUrl: signedPdfUrl,
+    fileName: draft.formName,
+    updatedAt: draft.updatedAt,
+    hasPdf: Boolean(draft.originalPdfUrl || draft.outputUrl),
+    status: draft.status,
+  };
 };
 
 /**
@@ -688,6 +723,7 @@ router.post('/pdf/fields', requireAuth, upload.single('pdf'), async (req: Reques
  */
 router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
   let incomingFormId: string | null = null;
+  let hadIncomingPdf = false;
   try {
     const {
       formId,
@@ -706,6 +742,15 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         error: 'Form data is required',
+      });
+    }
+
+    const hasIncomingPdf = typeof _pdfBytes === 'string' && _pdfBytes.length > 0;
+    hadIncomingPdf = hasIncomingPdf;
+    if (!formId && !hasIncomingPdf) {
+      return res.status(400).json({
+        success: false,
+        error: 'PDF file is required when creating a new draft',
       });
     }
 
@@ -732,13 +777,24 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
       totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
 
     let originalPdfUrl: string | undefined;
-    if (_pdfBytes && typeof _pdfBytes === 'string') {
+    if (hasIncomingPdf) {
       const buffer = Buffer.from(_pdfBytes, 'base64');
       const sanitizedName = (metadata.fileName || 'draft-form.pdf').replace(/[^\w.\-]+/g, '-');
       const r2Key = `form-drafts/${userId}/${Date.now()}-${sanitizedName}`;
       await uploadToR2(r2Key, buffer, 'application/pdf');
       originalPdfUrl = r2Key;
     }
+
+    const now = new Date();
+    const baseDraftData = {
+      filledData: structuredData,
+      totalFields,
+      filledFields,
+      validFields: filledFields,
+      completionPercentage,
+      updatedAt: now,
+      ...(originalPdfUrl ? { originalPdfUrl } : {}),
+    };
 
     if (formId) {
       const [existingForm] = await db
@@ -756,25 +812,30 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
       await db
         .update(filledForms)
         .set({
-          filledData: structuredData,
-          totalFields,
-          filledFields,
-          validFields: filledFields,
-          completionPercentage,
-          updatedAt: new Date(),
-          ...(originalPdfUrl ? { originalPdfUrl } : {}),
+          ...baseDraftData,
+          status: 'draft',
+          completedAt: null,
         })
         .where(eq(filledForms.id, formId));
 
+      const hasPdf = Boolean(originalPdfUrl || existingForm.originalPdfUrl || existingForm.outputUrl);
       return res.json({
         success: true,
         data: {
           formId,
-          savedAt: new Date(),
+          savedAt: now,
           persisted: true,
+          hasPdf,
         },
       });
     } else {
+      if (!originalPdfUrl) {
+        return res.status(400).json({
+          success: false,
+          error: 'PDF upload is required for a new draft',
+        });
+      }
+
       const [newForm] = await db
         .insert(filledForms)
         .values({
@@ -782,13 +843,8 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
           country: country || 'Unknown',
           visaType: visaType || 'Unknown',
           formName: formName || fileName || 'Draft Form',
-          filledData: structuredData,
-          totalFields,
-          filledFields,
-          validFields: filledFields,
-          completionPercentage,
+          ...baseDraftData,
           status: 'draft',
-          originalPdfUrl,
         })
         .returning();
 
@@ -796,8 +852,9 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
         success: true,
         data: {
           formId: newForm.id,
-          savedAt: new Date(),
+          savedAt: now,
           persisted: true,
+          hasPdf: true,
         },
       });
     }
@@ -811,6 +868,7 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
           formId: incomingFormId,
           savedAt: new Date(),
           persisted: false,
+          hasPdf: hadIncomingPdf,
         },
         warning: 'Draft saved locally only (database schema missing columns).',
       });
@@ -819,6 +877,97 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Failed to save draft',
+    });
+  }
+});
+
+router.get('/drafts', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as any).id;
+
+    const drafts = await db
+      .select()
+      .from(filledForms)
+      .where(and(eq(filledForms.userId, userId), eq(filledForms.status, 'draft')))
+      .orderBy(desc(filledForms.updatedAt));
+
+    res.json({
+      success: true,
+      data: {
+        drafts: drafts.map(buildDraftSummary),
+      },
+    });
+  } catch (error) {
+    console.error('[Form Filler API] List drafts error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load drafts',
+    });
+  }
+});
+
+router.get('/drafts/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as any).id;
+    const formId = req.params.id;
+
+    const drafts = await db
+      .select()
+      .from(filledForms)
+      .where(and(eq(filledForms.userId, userId), eq(filledForms.id, formId), eq(filledForms.status, 'draft')))
+      .limit(1);
+
+    if (!drafts.length) {
+      return res.status(404).json({
+        success: false,
+        error: 'Draft not found',
+      });
+    }
+
+    const payload = await buildDraftDetailResponse(drafts[0]);
+    res.json({
+      success: true,
+      data: payload,
+    });
+  } catch (error) {
+    console.error('[Form Filler API] Load draft detail error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load draft',
+    });
+  }
+});
+
+router.delete('/drafts/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as any).id;
+    const formId = req.params.id;
+
+    const deleted = await db
+      .delete(filledForms)
+      .where(and(eq(filledForms.id, formId), eq(filledForms.userId, userId), eq(filledForms.status, 'draft')))
+      .returning({
+        id: filledForms.id,
+      });
+
+    if (!deleted.length) {
+      return res.status(404).json({
+        success: false,
+        error: 'Draft not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        formId: deleted[0].id,
+      },
+    });
+  } catch (error) {
+    console.error('[Form Filler API] Delete draft error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete draft',
     });
   }
 });
@@ -842,29 +991,76 @@ router.get('/draft', requireAuth, async (req: Request, res: Response) => {
     }
 
     const draft = drafts[0];
-
-    let signedPdfUrl: string | null = null;
-    if (draft.originalPdfUrl) {
-      signedPdfUrl = await getSignedDownloadUrl(draft.originalPdfUrl, 60 * 60);
-    } else if (draft.outputUrl) {
-      signedPdfUrl = await getSignedDownloadUrl(draft.outputUrl, 60 * 60);
-    }
-
+    const payload = await buildDraftDetailResponse(draft);
     res.json({
       success: true,
-      data: {
-        formId: draft.id,
-        filledData: draft.filledData,
-        pdfUrl: signedPdfUrl,
-        fileName: draft.formName,
-        updatedAt: draft.updatedAt,
-      },
+      data: payload,
     });
   } catch (error) {
     console.error('[Form Filler API] Load draft error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to load draft',
+    });
+  }
+});
+
+router.patch('/:id/status', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as any).id;
+    const formId = req.params.id;
+    const { status } = req.body as { status?: string };
+
+    if (!status || !['draft', 'completed'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid status value',
+      });
+    }
+
+    const forms = await db
+      .select()
+      .from(filledForms)
+      .where(and(eq(filledForms.id, formId), eq(filledForms.userId, userId)))
+      .limit(1);
+
+    if (!forms.length) {
+      return res.status(404).json({
+        success: false,
+        error: 'Form not found',
+      });
+    }
+
+    const now = new Date();
+    const updatePayload: Partial<FilledForm> = {
+      status,
+      updatedAt: now,
+      completedAt: status === 'completed' ? now : null,
+    };
+
+    const [updatedForm] = await db
+      .update(filledForms)
+      .set(updatePayload)
+      .where(eq(filledForms.id, formId))
+      .returning({
+        id: filledForms.id,
+        status: filledForms.status,
+        completedAt: filledForms.completedAt,
+      });
+
+    res.json({
+      success: true,
+      data: {
+        formId: updatedForm.id,
+        status: updatedForm.status,
+        completedAt: updatedForm.completedAt,
+      },
+    });
+  } catch (error) {
+    console.error('[Form Filler API] Update draft status error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update draft status',
     });
   }
 });
