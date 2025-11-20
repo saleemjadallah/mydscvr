@@ -56,7 +56,7 @@ export async function generateCompliantPhoto(
 
     // First, analyze the photo with Gemini to check compliance
     const base64Image = photoBuffer.toString('base64');
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-image' });
 
     const analysisPrompt = `Analyze this photo for visa/passport photo compliance. Check for:
 1. Face clearly visible and centered
