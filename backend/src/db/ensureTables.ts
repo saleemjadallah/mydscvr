@@ -338,7 +338,15 @@ export async function ensureTables() {
           status TEXT NOT NULL DEFAULT 'draft',
           submitted_at TIMESTAMP WITH TIME ZONE,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+          country VARCHAR,
+          visa_type VARCHAR,
+          form_name VARCHAR,
+          total_fields INTEGER,
+          filled_fields INTEGER,
+          valid_fields INTEGER,
+          completion_percentage INTEGER,
+          form_template_id VARCHAR
         )
       `;
 
