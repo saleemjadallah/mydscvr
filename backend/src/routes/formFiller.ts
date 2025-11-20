@@ -79,6 +79,7 @@ const buildDraftSummary = (draft: FilledForm) => ({
   totalFields: draft.totalFields,
   filledFields: draft.filledFields,
   status: draft.status,
+  versionHistory: (draft.versionHistory || []).slice(0, 3),
 });
 
 const buildDraftDetailResponse = async (draft: FilledForm) => {
@@ -579,10 +580,13 @@ router.get('/history', requireAuth, async (req: Request, res: Response) => {
         confidence: filledForms.overallConfidence,
         createdAt: filledForms.createdAt,
         completedAt: filledForms.completedAt,
+        updatedAt: filledForms.updatedAt,
+        formName: filledForms.formName,
+        completionPercentage: filledForms.completionPercentage,
       })
       .from(filledForms)
       .where(eq(filledForms.userId, userId))
-      .orderBy(filledForms.createdAt)
+      .orderBy(desc(filledForms.updatedAt))
       .limit(limit)
       .offset(offset);
 
@@ -1172,6 +1176,38 @@ router.post('/drafts/:id/versions/:versionId/restore', requireAuth, async (req: 
     res.status(500).json({
       success: false,
       error: 'Failed to restore version',
+    });
+  }
+});
+
+router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as any).id;
+    const formId = req.params.id;
+
+    const deleted = await db
+      .delete(filledForms)
+      .where(and(eq(filledForms.id, formId), eq(filledForms.userId, userId)))
+      .returning({ id: filledForms.id });
+
+    if (!deleted.length) {
+      return res.status(404).json({
+        success: false,
+        error: 'Form not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        formId: deleted[0].id,
+      },
+    });
+  } catch (error) {
+    console.error('[Form Filler API] Delete form error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete form',
     });
   }
 });
