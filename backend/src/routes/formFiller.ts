@@ -33,8 +33,8 @@ import {
 } from '../lib/reviewRouter.js';
 import { validateUserProfile } from '../lib/validationSchemas.js';
 import { db } from '../db/index.js';
-import { filledForms, userProfiles, type FilledForm } from '../db/schema-formfiller.js';
-import { eq, and, desc } from 'drizzle-orm';
+import { filledForms, formDraftVersions, userProfiles, type FilledForm } from '../db/schema-formfiller.js';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { uploadToR2, getSignedDownloadUrl } from '../lib/storage.js';
 
 const router = express.Router();
@@ -97,6 +97,7 @@ const buildDraftDetailResponse = async (draft: FilledForm) => {
     updatedAt: draft.updatedAt,
     hasPdf: Boolean(draft.originalPdfUrl || draft.outputUrl),
     status: draft.status,
+    versionHistory: draft.versionHistory || [],
   };
 };
 
@@ -809,16 +810,40 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
         });
       }
 
+      const newVersion = {
+        snapshotId: `version_${Date.now()}`,
+        savedAt: now.toISOString(),
+        completionPercentage,
+      };
+      const combinedVersions = [newVersion, ...(existingForm.versionHistory || [])];
+      const updatedVersions = combinedVersions.slice(0, 5);
+      const removedVersions = combinedVersions.slice(5);
+
       await db
         .update(filledForms)
         .set({
           ...baseDraftData,
           status: 'draft',
           completedAt: null,
+          versionHistory: updatedVersions,
         })
         .where(eq(filledForms.id, formId));
 
+      await db.insert(formDraftVersions).values({
+        formId,
+        snapshotId: newVersion.snapshotId,
+        filledData: structuredData,
+        completionPercentage,
+      });
+
+      if (removedVersions.length > 0) {
+        await db
+          .delete(formDraftVersions)
+          .where(and(eq(formDraftVersions.formId, formId), inArray(formDraftVersions.snapshotId, removedVersions.map((v) => v.snapshotId))));
+      }
+
       const hasPdf = Boolean(originalPdfUrl || existingForm.originalPdfUrl || existingForm.outputUrl);
+
       return res.json({
         success: true,
         data: {
@@ -826,6 +851,8 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
           savedAt: now,
           persisted: true,
           hasPdf,
+          versionId: newVersion.snapshotId,
+          versions: updatedVersions,
         },
       });
     } else {
@@ -836,6 +863,12 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
         });
       }
 
+      const initialVersion = {
+        snapshotId: `version_${Date.now()}`,
+        savedAt: now.toISOString(),
+        completionPercentage,
+      };
+
       const [newForm] = await db
         .insert(filledForms)
         .values({
@@ -845,8 +878,16 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
           formName: formName || fileName || 'Draft Form',
           ...baseDraftData,
           status: 'draft',
+          versionHistory: [initialVersion],
         })
         .returning();
+
+      await db.insert(formDraftVersions).values({
+        formId: newForm.id,
+        snapshotId: initialVersion.snapshotId,
+        filledData: structuredData,
+        completionPercentage,
+      });
 
       return res.json({
         success: true,
@@ -855,6 +896,8 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
           savedAt: now,
           persisted: true,
           hasPdf: true,
+          versionId: initialVersion.snapshotId,
+          versions: [initialVersion],
         },
       });
     }
@@ -1061,6 +1104,74 @@ router.patch('/:id/status', requireAuth, async (req: Request, res: Response) => 
     res.status(500).json({
       success: false,
       error: 'Failed to update draft status',
+    });
+  }
+});
+
+router.post('/drafts/:id/versions/:versionId/restore', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as any).id;
+    const formId = req.params.id;
+    const versionId = req.params.versionId;
+
+    const [form] = await db
+      .select()
+      .from(filledForms)
+      .where(and(eq(filledForms.id, formId), eq(filledForms.userId, userId)))
+      .limit(1);
+
+    if (!form) {
+      return res.status(404).json({
+        success: false,
+        error: 'Draft not found',
+      });
+    }
+
+    const [version] = await db
+      .select()
+      .from(formDraftVersions)
+      .where(and(eq(formDraftVersions.formId, formId), eq(formDraftVersions.snapshotId, versionId)))
+      .limit(1);
+
+    if (!version) {
+      return res.status(404).json({
+        success: false,
+        error: 'Version not found',
+      });
+    }
+
+    const restoredData = version.filledData as any;
+    const valuesRecord = restoredData?.values || {};
+    const filledFieldsCount = Object.values(valuesRecord || {}).filter(
+      (entry: any) => entry?.value && entry.value.toString().trim() !== ''
+    ).length;
+    const totalFieldCount =
+      restoredData?.metadata?.fields?.length || Object.keys(valuesRecord || {}).length || form.totalFields || 0;
+
+    const [updatedForm] = await db
+      .update(filledForms)
+      .set({
+        filledData: restoredData,
+        filledFields: filledFieldsCount,
+        validFields: filledFieldsCount,
+        totalFields: totalFieldCount || form.totalFields,
+        completionPercentage: version.completionPercentage,
+        updatedAt: new Date(),
+      })
+      .where(eq(filledForms.id, formId))
+      .returning();
+
+    const payload = await buildDraftDetailResponse(updatedForm);
+
+    res.json({
+      success: true,
+      data: payload,
+    });
+  } catch (error) {
+    console.error('[Form Filler API] Restore version error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to restore version',
     });
   }
 });

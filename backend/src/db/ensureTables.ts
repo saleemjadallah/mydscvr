@@ -358,6 +358,17 @@ export async function ensureTables() {
         )
       `;
 
+      await sql`
+        CREATE TABLE IF NOT EXISTS form_draft_versions (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          form_id VARCHAR NOT NULL REFERENCES filled_forms(id) ON DELETE CASCADE,
+          snapshot_id TEXT NOT NULL,
+          filled_data JSONB NOT NULL,
+          completion_percentage INTEGER NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `;
+
       // Create indexes
       await sql`
         CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id ON user_profiles(user_id);
@@ -367,6 +378,8 @@ export async function ensureTables() {
         CREATE INDEX IF NOT EXISTS idx_family_profiles_user_id ON family_profiles(user_id);
         CREATE INDEX IF NOT EXISTS idx_travel_history_user_id ON travel_history(user_id);
         CREATE INDEX IF NOT EXISTS idx_filled_forms_user_id ON filled_forms(user_id);
+        CREATE INDEX IF NOT EXISTS idx_form_draft_versions_form ON form_draft_versions(form_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_form_draft_versions_snapshot ON form_draft_versions(snapshot_id);
       `;
 
       console.log('[DB] ✓ Created form filler tables');

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { pgTable, text, serial, integer, timestamp, json, varchar, date, boolean } from 'drizzle-orm/pg-core';
 import { users } from './schema';
 
@@ -384,9 +385,23 @@ export const filledForms = pgTable('filled_forms', {
   submittedAt: timestamp('submitted_at'),
   completedAt: timestamp('completed_at'), // When form filling was completed
   applicationNumber: text('application_number'), // If submitted
+  versionHistory: json('version_history').$type<Array<{
+    snapshotId: string;
+    savedAt: string;
+    completionPercentage: number;
+  }>>(),
 
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const formDraftVersions = pgTable('form_draft_versions', {
+  id: varchar('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  formId: varchar('form_id').notNull().references(() => filledForms.id, { onDelete: 'cascade' }),
+  snapshotId: text('snapshot_id').notNull(),
+  filledData: json('filled_data').notNull(),
+  completionPercentage: integer('completion_percentage').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 // Validation Rules Library - Common validation patterns
