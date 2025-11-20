@@ -360,7 +360,7 @@ export async function ensureTables() {
 
       await sql`
         CREATE TABLE IF NOT EXISTS form_draft_versions (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          id VARCHAR PRIMARY KEY,
           form_id VARCHAR NOT NULL REFERENCES filled_forms(id) ON DELETE CASCADE,
           snapshot_id TEXT NOT NULL,
           filled_data JSONB NOT NULL,
@@ -386,6 +386,22 @@ export async function ensureTables() {
     } else {
       console.log('[DB] ✓ Form filler tables already exist');
     }
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS form_draft_versions (
+        id VARCHAR PRIMARY KEY,
+        form_id VARCHAR NOT NULL REFERENCES filled_forms(id) ON DELETE CASCADE,
+        snapshot_id TEXT NOT NULL,
+        filled_data JSONB NOT NULL,
+        completion_percentage INTEGER NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_form_draft_versions_form ON form_draft_versions(form_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_form_draft_versions_snapshot ON form_draft_versions(snapshot_id);
+    `;
 
   } catch (error) {
     console.error('[DB] Error ensuring tables:', error);
