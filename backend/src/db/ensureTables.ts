@@ -352,7 +352,9 @@ export async function ensureTables() {
           output_url TEXT,
           validation_errors JSON,
           field_results JSON,
-          overall_confidence INTEGER
+          overall_confidence INTEGER,
+          completed_at TIMESTAMP WITH TIME ZONE,
+          application_number TEXT
         )
       `;
 
