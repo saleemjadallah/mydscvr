@@ -34,7 +34,7 @@ import {
 import { validateUserProfile } from '../lib/validationSchemas.js';
 import { db } from '../db/index.js';
 import { filledForms, userProfiles } from '../db/schema-formfiller.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { uploadToR2, getSignedDownloadUrl } from '../lib/storage.js';
 
 const router = express.Router();
@@ -269,7 +269,14 @@ router.post('/fill', requireAuth, upload.single('pdf'), async (req: Request, res
       country: destinationCountry || 'Unknown',
       visaType: 'General',
       formName: req.file.originalname || 'Form',
-      filledData: {},
+      filledData: {
+        values: {},
+        metadata: {
+          fields: [],
+          fileName: req.file.originalname || 'Form',
+          savedAt: new Date().toISOString(),
+        },
+      },
       totalFields: parsedFieldPopulations.length,
       filledFields: fillResult.populatedFields,
       validFields: fillResult.populatedFields,
@@ -682,7 +689,16 @@ router.post('/pdf/fields', requireAuth, upload.single('pdf'), async (req: Reques
 router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
   let incomingFormId: string | null = null;
   try {
-    const { formId, formData, pdfBytes: _pdfBytes } = req.body;
+    const {
+      formId,
+      formData,
+      pdfBytes: _pdfBytes,
+      fields = [],
+      fileName,
+      country,
+      visaType,
+      formName,
+    } = req.body;
     incomingFormId = formId || null;
     const userId = (req.user as any).id;
 
@@ -693,9 +709,38 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
       });
     }
 
-    // If formId exists, update existing form
+    const storedValues = formData?.values ?? formData;
+    const metadata = {
+      ...(formData?.metadata || {}),
+      fields: fields?.length ? fields : formData?.metadata?.fields || [],
+      fileName: formName || fileName || formData?.metadata?.fileName || 'Draft Form.pdf',
+      savedAt: new Date().toISOString(),
+    };
+
+    const structuredData = {
+      values: storedValues,
+      metadata,
+    };
+
+    const totalFields =
+      (metadata.fields && metadata.fields.length) || Object.keys(storedValues || {}).length || 0;
+    const filledFields = Object.values(storedValues || {}).filter(
+      (entry: any) => entry?.value && entry.value.trim() !== ''
+    ).length;
+
+    const completionPercentage =
+      totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
+
+    let originalPdfUrl: string | undefined;
+    if (_pdfBytes && typeof _pdfBytes === 'string') {
+      const buffer = Buffer.from(_pdfBytes, 'base64');
+      const sanitizedName = (metadata.fileName || 'draft-form.pdf').replace(/[^\w.\-]+/g, '-');
+      const r2Key = `form-drafts/${userId}/${Date.now()}-${sanitizedName}`;
+      await uploadToR2(r2Key, buffer, 'application/pdf');
+      originalPdfUrl = r2Key;
+    }
+
     if (formId) {
-      // Verify ownership
       const [existingForm] = await db
         .select()
         .from(filledForms)
@@ -708,14 +753,16 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
         });
       }
 
-      // Update form data
       await db
         .update(filledForms)
         .set({
-          filledData: formData,
+          filledData: structuredData,
+          totalFields,
+          filledFields,
+          validFields: filledFields,
+          completionPercentage,
           updatedAt: new Date(),
-          // If PDF bytes provided, we might want to save them too, but for now we just save data
-          // In a real app, we'd upload the new PDF to storage and update filledPdfUrl
+          ...(originalPdfUrl ? { originalPdfUrl } : {}),
         })
         .where(eq(filledForms.id, formId));
 
@@ -724,25 +771,24 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
         data: {
           formId,
           savedAt: new Date(),
+          persisted: true,
         },
       });
     } else {
-      // Create new draft form
-      // Note: In a real flow, we'd probably want more metadata here (country, visa type, etc.)
-      // For now, we'll create a basic record
       const [newForm] = await db
         .insert(filledForms)
         .values({
           userId,
-          country: 'Unknown', // Should be passed in body
-          visaType: 'Unknown', // Should be passed in body
-          formName: 'Draft Form',
-          filledData: formData,
-          totalFields: Object.keys(formData).length,
-          filledFields: Object.keys(formData).filter(k => formData[k]?.value).length,
-          validFields: 0,
-          completionPercentage: 0,
+          country: country || 'Unknown',
+          visaType: visaType || 'Unknown',
+          formName: formName || fileName || 'Draft Form',
+          filledData: structuredData,
+          totalFields,
+          filledFields,
+          validFields: filledFields,
+          completionPercentage,
           status: 'draft',
+          originalPdfUrl,
         })
         .returning();
 
@@ -751,6 +797,7 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
         data: {
           formId: newForm.id,
           savedAt: new Date(),
+          persisted: true,
         },
       });
     }
@@ -772,6 +819,52 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Failed to save draft',
+    });
+  }
+});
+
+router.get('/draft', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as any).id;
+
+    const drafts = await db
+      .select()
+      .from(filledForms)
+      .where(and(eq(filledForms.userId, userId), eq(filledForms.status, 'draft')))
+      .orderBy(desc(filledForms.updatedAt))
+      .limit(1);
+
+    if (!drafts.length) {
+      return res.json({
+        success: true,
+        data: null,
+      });
+    }
+
+    const draft = drafts[0];
+
+    let signedPdfUrl: string | null = null;
+    if (draft.originalPdfUrl) {
+      signedPdfUrl = await getSignedDownloadUrl(draft.originalPdfUrl, 60 * 60);
+    } else if (draft.outputUrl) {
+      signedPdfUrl = await getSignedDownloadUrl(draft.outputUrl, 60 * 60);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        formId: draft.id,
+        filledData: draft.filledData,
+        pdfUrl: signedPdfUrl,
+        fileName: draft.formName,
+        updatedAt: draft.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error('[Form Filler API] Load draft error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load draft',
     });
   }
 });

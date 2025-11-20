@@ -328,12 +328,17 @@ export const filledForms = pgTable('filled_forms', {
 
   // Filled Data
   filledData: json('filled_data').$type<{
-    [fieldId: string]: {
+    values: Record<string, {
       value: string;
       source: 'profile' | 'manual' | 'suggested';
       filledAt: string;
       validationStatus: 'valid' | 'warning' | 'error';
       validationMessage?: string;
+    }>;
+    metadata?: {
+      fields?: any[];
+      fileName?: string;
+      savedAt?: string;
     };
   }>().notNull(),
 
