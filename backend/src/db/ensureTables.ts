@@ -346,7 +346,13 @@ export async function ensureTables() {
           filled_fields INTEGER,
           valid_fields INTEGER,
           completion_percentage INTEGER,
-          form_template_id VARCHAR
+          form_template_id VARCHAR,
+          original_pdf_url TEXT,
+          filled_pdf_url TEXT,
+          output_url TEXT,
+          validation_errors JSON,
+          field_results JSON,
+          overall_confidence INTEGER
         )
       `;
 
