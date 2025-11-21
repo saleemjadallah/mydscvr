@@ -71,6 +71,15 @@ interface FlightDetails {
   };
 }
 
+const extractJsonObject = (content: string) => {
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Failed to extract JSON from Perplexity response');
+  }
+
+  return JSON.parse(jsonMatch[0]);
+};
+
 export async function generateTravelItinerary(request: TravelItineraryRequest): Promise<{
   itinerary: DayItinerary[];
   flightDetails: FlightDetails;
@@ -161,19 +170,13 @@ Return the response as a valid JSON object with this structure:
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      temperature: 0.3,
-      max_tokens: 8000,
+      temperature: 0.7, // Match Jeffrey's configuration for better balance
+      top_p: 0.9,
+      max_tokens: 4000,
     });
 
-    const content = response.choices[0]?.message?.content || '';
-
-    // Extract JSON from response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('Failed to extract JSON from Perplexity response');
-    }
-
-    const result = JSON.parse(jsonMatch[0]);
+    const content = (response.choices[0]?.message?.content as string) || '';
+    const result = extractJsonObject(content);
     return {
       itinerary: result.itinerary,
       flightDetails: result.flightDetails,

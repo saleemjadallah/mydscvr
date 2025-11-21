@@ -106,7 +106,11 @@ router.post('/preview', requireAuth, async (req: AuthedRequest, res: Response) =
     });
   } catch (error) {
     console.error('[Travel Itinerary] Preview generation error:', error);
-    return res.status(500).json({ success: false, error: 'Failed to generate itinerary preview' });
+    return res.status(500).json({
+      success: false,
+      error:
+        (error as Error)?.message || 'Failed to generate itinerary preview',
+    });
   }
 });
 
