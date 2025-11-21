@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { uploadToR2, getSignedDownloadUrl } from './storage.js';
+import heicConvert from 'heic-convert';
 import sharp from 'sharp';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -27,6 +28,43 @@ export async function generateCompliantPhoto(
   console.log('[Photo Generator] Starting processing with requirements:', requirements);
 
   try {
+    // Ensure HEIC/HEIF uploads from iPhone are converted to JPEG before processing
+    let workingBuffer = photoBuffer;
+    try {
+      const meta = await sharp(photoBuffer).metadata();
+      const format = (meta.format || '').toLowerCase();
+      const looksHeic =
+        format === 'heic' ||
+        format === 'heif' ||
+        format === 'avif'; // some iOS photos report AVIF
+
+      if (looksHeic) {
+        console.log('[Photo Generator] Detected HEIC/HEIF upload, converting to JPEG...');
+        const converted = await heicConvert({
+          buffer: photoBuffer,
+          format: 'JPEG',
+          quality: 1, // highest quality
+        });
+        workingBuffer = Buffer.from(converted);
+        console.log('[Photo Generator] HEIC conversion complete');
+      }
+    } catch (heicError) {
+      // If metadata inspection fails, try a best-effort HEIC conversion based on magic bytes
+      const header = photoBuffer.subarray(0, 12).toString('ascii');
+      if (header.includes('ftypheic') || header.includes('ftypheif') || header.includes('ftypavif')) {
+        console.log('[Photo Generator] Fallback HEIC signature detected, converting to JPEG...');
+        const converted = await heicConvert({
+          buffer: photoBuffer,
+          format: 'JPEG',
+          quality: 1,
+        });
+        workingBuffer = Buffer.from(converted);
+        console.log('[Photo Generator] HEIC fallback conversion complete');
+      } else {
+        console.warn('[Photo Generator] Unable to read image metadata, continuing without HEIC conversion:', heicError);
+      }
+    }
+
     // Parse dimensions from requirements (e.g., "35mm x 45mm" or "2\" x 2\"")
     let targetWidth = 600; // Default width in pixels
     let targetHeight = 600; // Default height in pixels
@@ -55,7 +93,7 @@ export async function generateCompliantPhoto(
     console.log(`[Photo Generator] Target dimensions: ${targetWidth}x${targetHeight} pixels`);
 
     // First, analyze the photo with Gemini to check compliance
-    const base64Image = photoBuffer.toString('base64');
+    const base64Image = workingBuffer.toString('base64');
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-image' });
 
     const analysisPrompt = `Analyze this photo for visa/passport photo compliance. Check for:
@@ -85,7 +123,7 @@ Return a JSON object with:
     console.log('[Photo Generator] Analysis result:', analysisText);
 
     // Process the image with Sharp
-    let processedImage = sharp(photoBuffer);
+    let processedImage = sharp(workingBuffer);
 
     // Get image metadata
     const metadata = await processedImage.metadata();
