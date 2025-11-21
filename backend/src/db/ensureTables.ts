@@ -120,10 +120,8 @@ export async function ensureTables() {
         )
       `;
 
-      await sql`
-        CREATE INDEX IF NOT EXISTS idx_visa_packages_user_id ON visa_packages(user_id);
-        CREATE INDEX IF NOT EXISTS idx_visa_packages_stage ON visa_packages(current_stage);
-      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_visa_packages_user_id ON visa_packages(user_id);`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_visa_packages_stage ON visa_packages(current_stage);`;
 
       console.log('[DB] ✓ Created visa_packages table');
     } else {
@@ -156,10 +154,8 @@ export async function ensureTables() {
       `;
 
       // Create indexes for faster lookups
-      await sql`
-        CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON chat_sessions(user_id);
-        CREATE INDEX IF NOT EXISTS idx_chat_sessions_package_id ON chat_sessions(package_id);
-      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON chat_sessions(user_id);`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_chat_sessions_package_id ON chat_sessions(package_id);`;
 
       console.log('[DB] ✓ Created chat_sessions table');
     } else {
@@ -370,38 +366,43 @@ export async function ensureTables() {
       `;
 
       // Create indexes
-      await sql`
-        CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id ON user_profiles(user_id);
-        CREATE INDEX IF NOT EXISTS idx_passport_profiles_user_id ON passport_profiles(user_id);
-        CREATE INDEX IF NOT EXISTS idx_employment_profiles_user_id ON employment_profiles(user_id);
-        CREATE INDEX IF NOT EXISTS idx_education_profiles_user_id ON education_profiles(user_id);
-        CREATE INDEX IF NOT EXISTS idx_family_profiles_user_id ON family_profiles(user_id);
-        CREATE INDEX IF NOT EXISTS idx_travel_history_user_id ON travel_history(user_id);
-        CREATE INDEX IF NOT EXISTS idx_filled_forms_user_id ON filled_forms(user_id);
-        CREATE INDEX IF NOT EXISTS idx_form_draft_versions_form ON form_draft_versions(form_id);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_form_draft_versions_snapshot ON form_draft_versions(snapshot_id);
-      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id ON user_profiles(user_id);`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_passport_profiles_user_id ON passport_profiles(user_id);`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_employment_profiles_user_id ON employment_profiles(user_id);`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_education_profiles_user_id ON education_profiles(user_id);`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_family_profiles_user_id ON family_profiles(user_id);`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_travel_history_user_id ON travel_history(user_id);`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_filled_forms_user_id ON filled_forms(user_id);`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_form_draft_versions_form ON form_draft_versions(form_id);`;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_form_draft_versions_snapshot ON form_draft_versions(snapshot_id);`;
 
       console.log('[DB] ✓ Created form filler tables');
     } else {
       console.log('[DB] ✓ Form filler tables already exist');
     }
 
-    await sql`
-      CREATE TABLE IF NOT EXISTS form_draft_versions (
-        id VARCHAR PRIMARY KEY,
-        form_id VARCHAR NOT NULL REFERENCES filled_forms(id) ON DELETE CASCADE,
-        snapshot_id TEXT NOT NULL,
-        filled_data JSONB NOT NULL,
-        completion_percentage INTEGER NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
-      )
+    // Ensure passport_profiles has newer columns from schema
+    const passportColumns = await sql`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'passport_profiles'
     `;
+    const passportColumnNames = (passportColumns as unknown as { column_name: string }[]).map((c) => c.column_name);
+    if (!passportColumnNames.includes('previous_passports')) {
+      await sql`ALTER TABLE passport_profiles ADD COLUMN previous_passports JSONB`;
+      console.log('[DB] ✓ Added previous_passports to passport_profiles');
+    }
+    if (!passportColumnNames.includes('has_biometric')) {
+      await sql`ALTER TABLE passport_profiles ADD COLUMN has_biometric BOOLEAN DEFAULT false`;
+      console.log('[DB] ✓ Added has_biometric to passport_profiles');
+    }
+    if (!passportColumnNames.includes('biometric_number')) {
+      await sql`ALTER TABLE passport_profiles ADD COLUMN biometric_number TEXT`;
+      console.log('[DB] ✓ Added biometric_number to passport_profiles');
+    }
 
-    await sql`
-      CREATE INDEX IF NOT EXISTS idx_form_draft_versions_form ON form_draft_versions(form_id);
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_form_draft_versions_snapshot ON form_draft_versions(snapshot_id);
-    `;
+    // Ensure indexes on form_draft_versions even if table already existed
+    await sql`CREATE INDEX IF NOT EXISTS idx_form_draft_versions_form ON form_draft_versions(form_id);`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_form_draft_versions_snapshot ON form_draft_versions(snapshot_id);`;
 
   } catch (error) {
     console.error('[DB] Error ensuring tables:', error);
