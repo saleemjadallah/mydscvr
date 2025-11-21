@@ -5,6 +5,17 @@
  * - Travel itinerary generation with real hotels/flights
  * - Document validation requirements lookup
  * - Visa requirement intelligence
+ *
+ * MODEL CONFIGURATION (Updated Nov 2025):
+ * - Primary: sonar-reasoning-pro (DeepSeek R1-based, best for complex reasoning + real-time search)
+ * - Fallback: sonar-pro (Llama 3.3-based, stable and reliable)
+ * - Override: Set PERPLEXITY_MODEL env var to use a different model
+ *
+ * BEST PRACTICES FOR TRAVEL ITINERARY:
+ * - Use sonar-reasoning-pro for accurate, fact-based itinerary generation
+ * - Lower temperature (0.3) for consistent, reliable results
+ * - Higher max_tokens (8000) for detailed multi-day itineraries
+ * - Gemini should only be used as fallback if Perplexity fails
  */
 
 import OpenAI from 'openai';
@@ -14,6 +25,12 @@ const perplexity = new OpenAI({
   apiKey: process.env.PERPLEXITY_API_KEY || '',
   baseURL: 'https://api.perplexity.ai',
 });
+
+// Allow overriding the model at runtime; default to the latest reasoning-capable model with a backwards-compatible fallback
+// Updated Nov 2025: sonar-reasoning-pro is the most advanced model with DeepSeek R1 reasoning capabilities
+// See: https://docs.perplexity.ai/getting-started/models/models/sonar-reasoning
+const DEFAULT_PERPLEXITY_MODEL = process.env.PERPLEXITY_MODEL?.trim() || 'sonar-reasoning-pro';
+const FALLBACK_PERPLEXITY_MODEL = 'sonar-pro'; // Llama 3.3-based fallback for stability
 
 // ============================================
 // TRAVEL ITINERARY GENERATION
@@ -164,23 +181,36 @@ Return the response as a valid JSON object with this structure:
 }`;
 
   try {
-    const response = await perplexity.chat.completions.create({
-      model: 'sonar-pro', // Updated from deprecated llama-3.1-sonar-large-128k-online
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.7, // Match Jeffrey's configuration for better balance
-      top_p: 0.9,
-      max_tokens: 4000,
-    });
+    const invokeModel = async (model: string) => {
+      const response = await perplexity.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.3, // Lower temperature for more consistent, factual itinerary generation
+        top_p: 0.9,
+        max_tokens: 8000, // Increased for detailed multi-day itineraries
+      });
 
-    const content = (response.choices[0]?.message?.content as string) || '';
-    const result = extractJsonObject(content);
-    return {
-      itinerary: result.itinerary,
-      flightDetails: result.flightDetails,
+      const content = (response.choices[0]?.message?.content as string) || '';
+      const result = extractJsonObject(content);
+      return {
+        itinerary: result.itinerary,
+        flightDetails: result.flightDetails,
+      };
     };
+
+    try {
+      return await invokeModel(DEFAULT_PERPLEXITY_MODEL);
+    } catch (primaryError) {
+      // Attempt a fallback model if the default fails
+      console.warn(`[Perplexity] Primary model "${DEFAULT_PERPLEXITY_MODEL}" failed, attempting fallback "${FALLBACK_PERPLEXITY_MODEL}".`, primaryError);
+      if (DEFAULT_PERPLEXITY_MODEL !== FALLBACK_PERPLEXITY_MODEL) {
+        return await invokeModel(FALLBACK_PERPLEXITY_MODEL);
+      }
+      throw primaryError;
+    }
   } catch (error) {
     console.error('[Perplexity] Travel itinerary generation error:', error);
     throw error;
@@ -237,7 +267,7 @@ Return as JSON:
 
   try {
     const response = await perplexity.chat.completions.create({
-      model: 'sonar-pro', // Updated from deprecated llama-3.1-sonar-large-128k-online
+      model: 'sonar-pro', // Llama 3.3-based model with real-time web search
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -350,7 +380,7 @@ Return as JSON:
 
   try {
     const response = await perplexity.chat.completions.create({
-      model: 'sonar-pro', // Updated from deprecated llama-3.1-sonar-large-128k-online
+      model: 'sonar-pro', // Llama 3.3-based model with real-time web search
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -408,7 +438,7 @@ Return as JSON:
 
   try {
     const response = await perplexity.chat.completions.create({
-      model: 'sonar-pro', // Updated from deprecated llama-3.1-sonar-large-128k-online
+      model: 'sonar-pro', // Llama 3.3-based model with real-time web search
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },

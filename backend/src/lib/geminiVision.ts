@@ -3,6 +3,15 @@
  *
  * Uses Gemini's vision capabilities to analyze visa photos for compliance
  * with specific country requirements.
+ *
+ * MODEL CONFIGURATION (Updated Nov 2025):
+ * - Model: gemini-2.5-flash (Latest stable Flash model from Nov 2025)
+ * - Optimized for: High-volume, low-latency vision tasks
+ * - Use Cases: Photo compliance, document OCR, form field extraction
+ *
+ * IMPORTANT: For travel itinerary generation, Perplexity should be used
+ * as the primary model due to its real-time web search capabilities.
+ * Gemini is better suited for vision-based tasks.
  */
 
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
@@ -130,7 +139,7 @@ export async function analyzePhotoCompliance(
   requirements: RequirementSpecs
 ): Promise<PhotoAnalysisResult> {
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-flash', // Latest stable Flash model (Nov 2025) - optimized for high-volume, low-latency tasks
     generationConfig: {
       temperature: 0.2,
       topK: 10,
@@ -335,7 +344,7 @@ export async function analyzeMultiplePhotos(
  */
 export async function extractDocumentText(documentUrl: string): Promise<string> {
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-flash', // Latest stable Flash model (Nov 2025) for fast text extraction
     generationConfig: {
       temperature: 0.1,
       maxOutputTokens: 8192,
@@ -381,7 +390,7 @@ export async function extractDocumentText(documentUrl: string): Promise<string> 
  */
 export async function analyzeDocumentImage(documentUrl: string): Promise<string> {
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-flash', // Latest stable Flash model (Nov 2025) for document analysis
     generationConfig: {
       temperature: 0.2,
       maxOutputTokens: 4096,
@@ -467,7 +476,7 @@ export async function analyzePDFFormFields(
   fieldCount: number
 ): Promise<PDFFormField[]> {
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-flash', // Latest stable Flash model (Nov 2025) for PDF form field analysis
     generationConfig: {
       temperature: 0.1,
       topK: 5,
@@ -647,7 +656,7 @@ export async function extractFormFieldsWithGemini(
   const startTime = Date.now();
 
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-flash', // Latest stable Flash model (Nov 2025) for form field extraction
     generationConfig: {
       temperature: 0.1,
       topK: 5,
@@ -770,7 +779,7 @@ export async function analyzeFormForValidation(
   console.log(`[Gemini Vision] Analyzing form for validation - ${pageImages.length} pages, country: ${country}`);
 
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-flash', // Latest stable Flash model (Nov 2025) for form validation
     generationConfig: {
       temperature: 0.3,
       maxOutputTokens: 4096,
