@@ -492,202 +492,9 @@ router.post('/:id/validate', requireAuth, async (req: Request, res: Response) =>
 });
 
 /**
- * GET /api/form-filler/:id
- * Get filled form details
+ * POST /api/form-filler/save-draft
+ * Save form progress (autosave)
  */
-router.get('/:id', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const userId = (req.user as any).id;
-    const formId = req.params.id;
-
-    const forms = await db
-      .select()
-      .from(filledForms)
-      .where(eq(filledForms.id, formId))
-      .limit(1);
-
-    if (forms.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Form not found',
-      });
-    }
-
-    const form = forms[0];
-
-    // Verify ownership
-    if (form.userId !== userId) {
-      return res.status(403).json({
-        success: false,
-        error: 'Access denied',
-      });
-    }
-
-    // Get download URL if form is completed
-    let downloadUrl;
-    if (form.outputUrl) {
-      downloadUrl = await getSignedDownloadUrl(form.outputUrl);
-    }
-
-    res.json({
-      success: true,
-      data: {
-        id: form.id,
-        status: form.status,
-        confidence: form.overallConfidence,
-        downloadUrl,
-        createdAt: form.createdAt,
-        completedAt: form.completedAt,
-      },
-    });
-  } catch (error) {
-    console.error('[Form Filler API] Get form error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to retrieve form',
-      details: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * GET /api/form-filler/:id/download
- * Download filled PDF
- */
-router.get('/:id/download', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const userId = (req.user as any).id;
-    const formId = req.params.id;
-
-    const forms = await db
-      .select()
-      .from(filledForms)
-      .where(eq(filledForms.id, formId))
-      .limit(1);
-
-    if (forms.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Form not found',
-      });
-    }
-
-    const form = forms[0];
-
-    // Verify ownership
-    if (form.userId !== userId) {
-      return res.status(403).json({
-        success: false,
-        error: 'Access denied',
-      });
-    }
-
-    if (!form.outputUrl) {
-      return res.status(404).json({
-        success: false,
-        error: 'PDF not available',
-      });
-    }
-
-    // Get signed download URL
-    const downloadUrl = await getSignedDownloadUrl(form.outputUrl, 3600); // 1 hour expiry
-
-    res.json({
-      success: true,
-      data: {
-        downloadUrl,
-        expiresIn: 3600,
-      },
-    });
-  } catch (error) {
-    console.error('[Form Filler API] Download error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to generate download link',
-      details: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * PUT /api/form-filler/:id/fields
- * Update specific fields in a filled form
- */
-router.put('/:id/fields', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const userId = (req.user as any).id;
-    const formId = req.params.id;
-    const { fieldUpdates } = req.body;
-
-    if (!fieldUpdates || !Array.isArray(fieldUpdates)) {
-      return res.status(400).json({
-        success: false,
-        error: 'fieldUpdates array is required',
-      });
-    }
-
-    // Get existing form
-    const forms = await db
-      .select()
-      .from(filledForms)
-      .where(eq(filledForms.id, formId))
-      .limit(1);
-
-    if (forms.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Form not found',
-      });
-    }
-
-    const form = forms[0];
-
-    // Verify ownership
-    if (form.userId !== userId) {
-      return res.status(403).json({
-        success: false,
-        error: 'Access denied',
-      });
-    }
-
-    // Update field values
-    const updatedFieldResults = { ...(form.fieldResults || {}) };
-
-    for (const update of fieldUpdates) {
-      if (update.fieldId && update.value !== undefined) {
-        updatedFieldResults[update.fieldId] = {
-          ...updatedFieldResults[update.fieldId],
-          value: update.value,
-          source: 'manual',
-        };
-      }
-    }
-
-    // Save updates
-    await db
-      .update(filledForms)
-      .set({
-        fieldResults: Object.values(updatedFieldResults) as any,
-        updatedAt: new Date(),
-      })
-      .where(eq(filledForms.id, formId));
-
-    res.json({
-      success: true,
-      data: {
-        updatedFields: fieldUpdates.length,
-      },
-    });
-  } catch (error) {
-    console.error('[Form Filler API] Field update error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update fields',
-      details: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
 /**
  * GET /api/form-filler/pdf/fields
  * Extract field names from a PDF (for debugging/mapping)
@@ -720,10 +527,6 @@ router.post('/pdf/fields', requireAuth, upload.single('pdf'), async (req: Reques
   }
 });
 
-/**
- * POST /api/form-filler/save-draft
- * Save form progress (autosave)
- */
 router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
   let incomingFormId: string | null = null;
   let hadIncomingPdf = false;
@@ -1089,6 +892,203 @@ router.get('/draft', requireAuth, async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Failed to load draft',
+    });
+  }
+});
+
+/**
+ * GET /api/form-filler/:id
+ * Get filled form details
+ */
+router.get('/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as any).id;
+    const formId = req.params.id;
+
+    const forms = await db
+      .select()
+      .from(filledForms)
+      .where(eq(filledForms.id, formId))
+      .limit(1);
+
+    if (forms.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Form not found',
+      });
+    }
+
+    const form = forms[0];
+
+    // Verify ownership
+    if (form.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+      });
+    }
+
+    // Get download URL if form is completed
+    let downloadUrl;
+    if (form.outputUrl) {
+      downloadUrl = await getSignedDownloadUrl(form.outputUrl);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: form.id,
+        status: form.status,
+        confidence: form.overallConfidence,
+        downloadUrl,
+        createdAt: form.createdAt,
+        completedAt: form.completedAt,
+      },
+    });
+  } catch (error) {
+    console.error('[Form Filler API] Get form error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve form',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * GET /api/form-filler/:id/download
+ * Download filled PDF
+ */
+router.get('/:id/download', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as any).id;
+    const formId = req.params.id;
+
+    const forms = await db
+      .select()
+      .from(filledForms)
+      .where(eq(filledForms.id, formId))
+      .limit(1);
+
+    if (forms.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Form not found',
+      });
+    }
+
+    const form = forms[0];
+
+    // Verify ownership
+    if (form.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+      });
+    }
+
+    if (!form.outputUrl) {
+      return res.status(404).json({
+        success: false,
+        error: 'PDF not available',
+      });
+    }
+
+    // Get signed download URL
+    const downloadUrl = await getSignedDownloadUrl(form.outputUrl, 3600); // 1 hour expiry
+
+    res.json({
+      success: true,
+      data: {
+        downloadUrl,
+        expiresIn: 3600,
+      },
+    });
+  } catch (error) {
+    console.error('[Form Filler API] Download error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate download link',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * PUT /api/form-filler/:id/fields
+ * Update specific fields in a filled form
+ */
+router.put('/:id/fields', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as any).id;
+    const formId = req.params.id;
+    const { fieldUpdates } = req.body;
+
+    if (!fieldUpdates || !Array.isArray(fieldUpdates)) {
+      return res.status(400).json({
+        success: false,
+        error: 'fieldUpdates array is required',
+      });
+    }
+
+    // Get existing form
+    const forms = await db
+      .select()
+      .from(filledForms)
+      .where(eq(filledForms.id, formId))
+      .limit(1);
+
+    if (forms.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Form not found',
+      });
+    }
+
+    const form = forms[0];
+
+    // Verify ownership
+    if (form.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+      });
+    }
+
+    // Update field values
+    const updatedFieldResults = { ...(form.fieldResults || {}) };
+
+    for (const update of fieldUpdates) {
+      if (update.fieldId && update.value !== undefined) {
+        updatedFieldResults[update.fieldId] = {
+          ...updatedFieldResults[update.fieldId],
+          value: update.value,
+          source: 'manual',
+        };
+      }
+    }
+
+    // Save updates
+    await db
+      .update(filledForms)
+      .set({
+        fieldResults: Object.values(updatedFieldResults) as any,
+        updatedAt: new Date(),
+      })
+      .where(eq(filledForms.id, formId));
+
+    res.json({
+      success: true,
+      data: {
+        updatedFields: fieldUpdates.length,
+      },
+    });
+  } catch (error) {
+    console.error('[Form Filler API] Field update error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update fields',
+      details: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
