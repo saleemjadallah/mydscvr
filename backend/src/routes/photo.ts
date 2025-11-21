@@ -56,12 +56,15 @@ router.post('/process-compliance', upload.single('photo'), async (req: any, res)
       userId
     );
 
+    // Align response with ApiResponse<T> shape expected by the frontend
     res.json({
       success: true,
-      message: 'Photo processed successfully.',
-      originalFileName: req.file.originalname,
-      requirements: photoRequirements,
-      processedPhotoUrl: processedPhotoUrl,
+      data: {
+        message: 'Photo processed successfully.',
+        originalFileName: req.file.originalname,
+        requirements: photoRequirements,
+        processedPhotoUrl: processedPhotoUrl,
+      },
     });
   } catch (error: any) {
     console.error('[Photo Compliance] Error:', error);
@@ -74,4 +77,3 @@ router.post('/process-compliance', upload.single('photo'), async (req: any, res)
 });
 
 export default router;
-

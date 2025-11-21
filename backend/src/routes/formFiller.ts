@@ -10,6 +10,7 @@
  * - Manage form history
  */
 
+import crypto from 'node:crypto';
 import express, { Request, Response } from 'express';
 import multer from 'multer';
 import { extractFormFields, detectDocumentType } from '../lib/documentRouter.js';
@@ -609,54 +610,6 @@ router.get('/:id/download', requireAuth, async (req: Request, res: Response) => 
 });
 
 /**
- * GET /api/form-filler/history
- * Get user's form filling history
- */
-router.get('/history', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const userId = (req.user as any).id;
-    const limit = parseInt(req.query.limit as string) || 20;
-    const offset = parseInt(req.query.offset as string) || 0;
-
-    const forms = await db
-      .select({
-        id: filledForms.id,
-        status: filledForms.status,
-        confidence: filledForms.overallConfidence,
-        createdAt: filledForms.createdAt,
-        completedAt: filledForms.completedAt,
-        updatedAt: filledForms.updatedAt,
-        formName: filledForms.formName,
-        completionPercentage: filledForms.completionPercentage,
-      })
-      .from(filledForms)
-      .where(eq(filledForms.userId, userId))
-      .orderBy(desc(filledForms.updatedAt))
-      .limit(limit)
-      .offset(offset);
-
-    res.json({
-      success: true,
-      data: {
-        forms,
-        pagination: {
-          limit,
-          offset,
-          total: forms.length,
-        },
-      },
-    });
-  } catch (error) {
-    console.error('[Form Filler API] History error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to retrieve form history',
-      details: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
  * PUT /api/form-filler/:id/fields
  * Update specific fields in a filled form
  */
@@ -874,6 +827,7 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
         .where(eq(filledForms.id, formId));
 
       await db.insert(formDraftVersions).values({
+        id: crypto.randomUUID(),
         formId,
         snapshotId: newVersion.snapshotId,
         filledData: structuredData,
@@ -922,6 +876,7 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
       };
 
       await db.insert(formDraftVersions).values({
+        id: crypto.randomUUID(),
         formId: newForm.id,
         snapshotId: initialVersion.snapshotId,
         filledData: structuredData,
@@ -961,6 +916,53 @@ router.post('/save-draft', requireAuth, async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Failed to save draft',
+    });
+  }
+});
+
+/**
+ * GET /api/form-filler/history
+ */
+router.get('/history', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as any).id;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    const forms = await db
+      .select({
+        id: filledForms.id,
+        status: filledForms.status,
+        confidence: filledForms.overallConfidence,
+        createdAt: filledForms.createdAt,
+        completedAt: filledForms.completedAt,
+        updatedAt: filledForms.updatedAt,
+        formName: filledForms.formName,
+        completionPercentage: filledForms.completionPercentage,
+      })
+      .from(filledForms)
+      .where(eq(filledForms.userId, userId))
+      .orderBy(desc(filledForms.updatedAt))
+      .limit(limit)
+      .offset(offset);
+
+    res.json({
+      success: true,
+      data: {
+        forms,
+        pagination: {
+          limit,
+          offset,
+          total: forms.length,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('[Form Filler API] History error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve form history',
+      details: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
