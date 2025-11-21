@@ -12,6 +12,21 @@ interface AuthedRequest extends Request {
   user?: any;
 }
 
+const calculateTripDuration = (startDate: string, endDate: string): number => {
+  if (!startDate || !endDate) return 0;
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return 0;
+  }
+
+  const diffInMs = end.getTime() - start.getTime();
+  // Ensure at least 1 day duration and cap at 30 to avoid runaway prompts
+  return Math.min(Math.max(Math.ceil(diffInMs / (1000 * 60 * 60 * 24)), 1), 30);
+};
+
 // Middleware to require authentication
 const requireAuth = (req: Request, res: Response, next: Function) => {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
@@ -50,6 +65,48 @@ router.post('/create', requireAuth, async (req: AuthedRequest, res: Response) =>
   } catch (error) {
     console.error('[Travel Itinerary] Create error:', error);
     res.status(500).json({ success: false, error: 'Failed to create itinerary request' });
+  }
+});
+
+// POST /api/travel-itinerary/preview
+// Generate a Perplexity-powered itinerary without persisting it
+router.post('/preview', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const {
+      destination,
+      countries = [],
+      startDate,
+      endDate,
+      travelPurpose,
+      budget = 'medium',
+    } = req.body;
+
+    if (!destination || !startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'Missing required fields' });
+    }
+
+    const duration = calculateTripDuration(startDate, endDate);
+    if (!duration) {
+      return res.status(400).json({ success: false, error: 'Invalid travel dates' });
+    }
+
+    const generated = await generateTravelItinerary({
+      destination,
+      countries,
+      duration,
+      startDate,
+      endDate,
+      travelPurpose: travelPurpose || 'tourism',
+      budget: budget || 'medium',
+    });
+
+    return res.json({
+      success: true,
+      data: generated,
+    });
+  } catch (error) {
+    console.error('[Travel Itinerary] Preview generation error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to generate itinerary preview' });
   }
 });
 
