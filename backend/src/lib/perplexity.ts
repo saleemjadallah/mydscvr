@@ -63,6 +63,8 @@ interface DayItinerary {
     checkIn: string;
     checkOut: string;
     confirmationNumber: string;
+    pricePerNight: number;
+    currency: string;
   };
   transportation: {
     type: string;
@@ -79,12 +81,18 @@ interface FlightDetails {
     flightNumber: string;
     departure: { airport: string; time: string; date: string };
     arrival: { airport: string; time: string; date: string };
+    price: number;
+    currency: string;
+    class: string;
   };
   return: {
     airline: string;
     flightNumber: string;
     departure: { airport: string; time: string; date: string };
     arrival: { airport: string; time: string; date: string };
+    price: number;
+    currency: string;
+    class: string;
   };
 }
 
@@ -124,19 +132,21 @@ Important: Generate confirmation numbers in realistic formats (e.g., CONF-ABC123
 - Departure from: Dubai, UAE (DXB)
 
 **Requirements:**
-1. Generate realistic flight details (outbound and return) with actual airline routes
+1. Generate realistic flight details (outbound and return) with actual airline routes AND REALISTIC PRICES
+   - Include estimated ticket prices in USD based on the route and travel class
+   - Budget: Economy class, Medium: Premium Economy, High: Business class
 2. For each day, provide:
    - Morning, afternoon, and evening activities with specific locations
-   - Hotel accommodation with real hotel name and address
-   - Any inter-city transportation needed
-3. Hotels should match the budget level:
-   - Low: 3-star hotels, budget chains
-   - Medium: 4-star hotels, business hotels
-   - High: 5-star hotels, luxury properties
+   - Hotel accommodation with real hotel name, address, AND REALISTIC NIGHTLY RATE
+3. Hotels should match the budget level with appropriate pricing:
+   - Low: 3-star hotels, budget chains ($50-100/night)
+   - Medium: 4-star hotels, business hotels ($100-250/night)
+   - High: 5-star hotels, luxury properties ($250-500+/night)
 4. Activities should be:
    - Tourism: Tourist attractions, museums, landmarks, local experiences
    - Business: Conference venues, business districts, networking events
    - Family Visit: Mix of family activities and local exploration
+5. **IMPORTANT**: Research current market prices for flights and hotels on these routes to provide realistic estimates
 
 Return the response as a valid JSON object with this structure:
 {
@@ -159,7 +169,9 @@ Return the response as a valid JSON object with this structure:
         "address": "123 Rue Example, 75001 Paris, France",
         "checkIn": "15:00",
         "checkOut": "11:00",
-        "confirmationNumber": "CONF-PAR123456"
+        "confirmationNumber": "CONF-PAR123456",
+        "pricePerNight": 180,
+        "currency": "USD"
       },
       "transportation": []
     }
@@ -169,13 +181,19 @@ Return the response as a valid JSON object with this structure:
       "airline": "Emirates",
       "flightNumber": "EK073",
       "departure": { "airport": "DXB", "time": "08:45", "date": "2024-01-15" },
-      "arrival": { "airport": "CDG", "time": "13:35", "date": "2024-01-15" }
+      "arrival": { "airport": "CDG", "time": "13:35", "date": "2024-01-15" },
+      "price": 850,
+      "currency": "USD",
+      "class": "Economy"
     },
     "return": {
       "airline": "Emirates",
       "flightNumber": "EK074",
       "departure": { "airport": "CDG", "time": "22:30", "date": "2024-01-20" },
-      "arrival": { "airport": "DXB", "time": "07:15", "date": "2024-01-21" }
+      "arrival": { "airport": "DXB", "time": "07:15", "date": "2024-01-21" },
+      "price": 850,
+      "currency": "USD",
+      "class": "Economy"
     }
   }
 }`;
