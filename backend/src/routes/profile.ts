@@ -426,6 +426,10 @@ router.post('/autofill', requireAuth, async (req: Request, res: Response) => {
       'place_of_birth': () => profile?.placeOfBirth,
       'birthPlace': () => profile?.placeOfBirth,
 
+      'countryOfBirth': () => profile?.countryOfBirth,
+      'country_of_birth': () => profile?.countryOfBirth,
+      'birthCountry': () => profile?.countryOfBirth,
+
       'nationality': () => profile?.nationality,
       'citizenship': () => profile?.nationality,
 

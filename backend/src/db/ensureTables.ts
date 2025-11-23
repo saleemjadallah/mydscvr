@@ -400,6 +400,33 @@ export async function ensureTables() {
       console.log('[DB] ✓ Added biometric_number to passport_profiles');
     }
 
+    // Ensure employment_profiles has newer columns used by profile manager
+    const employmentColumns = await sql`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'employment_profiles'
+    `;
+    const employmentColumnNames = (employmentColumns as unknown as { column_name: string }[]).map((c) => c.column_name);
+    const employmentColumnsToAdd: { name: string; ddl: string }[] = [
+      { name: 'employer_phone', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS employer_phone TEXT' },
+      { name: 'employer_email', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS employer_email TEXT' },
+      { name: 'employer_website', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS employer_website TEXT' },
+      { name: 'employment_type', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS employment_type TEXT' },
+      { name: 'monthly_salary', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS monthly_salary TEXT' },
+      { name: 'currency', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS currency TEXT' },
+      { name: 'responsibilities', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS responsibilities TEXT' },
+      { name: 'supervisor_name', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS supervisor_name TEXT' },
+      { name: 'supervisor_title', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS supervisor_title TEXT' },
+      { name: 'supervisor_phone', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS supervisor_phone TEXT' },
+      { name: 'supervisor_email', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS supervisor_email TEXT' },
+    ];
+
+    for (const column of employmentColumnsToAdd) {
+      if (!employmentColumnNames.includes(column.name)) {
+        await sql.unsafe(column.ddl);
+        console.log(`[DB] ✓ Added ${column.name} to employment_profiles`);
+      }
+    }
+
     // Ensure indexes on form_draft_versions even if table already existed
     await sql`CREATE INDEX IF NOT EXISTS idx_form_draft_versions_form ON form_draft_versions(form_id);`;
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_form_draft_versions_snapshot ON form_draft_versions(snapshot_id);`;
