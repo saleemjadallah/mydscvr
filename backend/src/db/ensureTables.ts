@@ -21,6 +21,29 @@ export async function ensureTables() {
 
   const sql = postgres(connectionString);
 
+  const ensureColumns = async (
+    table: string,
+    columns: { name: string; ddl: string; backfill?: string }[]
+  ) => {
+    const columnResults = await sql`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = ${table}
+    `;
+    const existing = (columnResults as unknown as { column_name: string }[]).map((c) => c.column_name);
+
+    for (const col of columns) {
+      if (!existing.includes(col.name)) {
+        await sql.unsafe(col.ddl);
+        console.log(`[DB] ✓ Added ${col.name} to ${table}`);
+        if (col.backfill) {
+          await sql.unsafe(col.backfill);
+          console.log(`[DB] ✓ Backfilled ${col.name} on ${table}`);
+        }
+      }
+    }
+  };
+
   try {
     // Read and execute the migration SQL
     const migrationPath = join(__dirname, '..', '..', 'drizzle', '0002_create_all_tables.sql');
@@ -400,13 +423,18 @@ export async function ensureTables() {
       console.log('[DB] ✓ Added biometric_number to passport_profiles');
     }
 
-    // Ensure employment_profiles has newer columns used by profile manager
-    const employmentColumns = await sql`
-      SELECT column_name FROM information_schema.columns
-      WHERE table_schema = 'public' AND table_name = 'employment_profiles'
-    `;
-    const employmentColumnNames = (employmentColumns as unknown as { column_name: string }[]).map((c) => c.column_name);
-    const employmentColumnsToAdd: { name: string; ddl: string }[] = [
+    // Ensure user_profiles newer columns exist
+    await ensureColumns('user_profiles', [
+      { name: 'alternative_phone', ddl: 'ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS alternative_phone TEXT' },
+      { name: 'current_address', ddl: 'ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS current_address JSONB' },
+      { name: 'previous_addresses', ddl: 'ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS previous_addresses JSONB' },
+      { name: 'dual_nationality', ddl: 'ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS dual_nationality TEXT' },
+      { name: 'country_of_birth', ddl: 'ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS country_of_birth TEXT' },
+      { name: 'emergency_contact', ddl: 'ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS emergency_contact JSONB' },
+    ]);
+
+    // Ensure employment_profiles newer columns used by profile manager exist
+    await ensureColumns('employment_profiles', [
       { name: 'employer_phone', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS employer_phone TEXT' },
       { name: 'employer_email', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS employer_email TEXT' },
       { name: 'employer_website', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS employer_website TEXT' },
@@ -418,14 +446,54 @@ export async function ensureTables() {
       { name: 'supervisor_title', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS supervisor_title TEXT' },
       { name: 'supervisor_phone', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS supervisor_phone TEXT' },
       { name: 'supervisor_email', ddl: 'ALTER TABLE employment_profiles ADD COLUMN IF NOT EXISTS supervisor_email TEXT' },
-    ];
+    ]);
 
-    for (const column of employmentColumnsToAdd) {
-      if (!employmentColumnNames.includes(column.name)) {
-        await sql.unsafe(column.ddl);
-        console.log(`[DB] ✓ Added ${column.name} to employment_profiles`);
-      }
-    }
+    // Ensure education_profiles columns match drizzle schema
+    await ensureColumns('education_profiles', [
+      {
+        name: 'degree',
+        ddl: 'ALTER TABLE education_profiles ADD COLUMN IF NOT EXISTS degree TEXT',
+        backfill: 'UPDATE education_profiles SET degree = degree_level WHERE degree IS NULL AND degree_level IS NOT NULL',
+      },
+      { name: 'end_date', ddl: 'ALTER TABLE education_profiles ADD COLUMN IF NOT EXISTS end_date DATE' },
+      { name: 'institution_website', ddl: 'ALTER TABLE education_profiles ADD COLUMN IF NOT EXISTS institution_website TEXT' },
+      { name: 'student_id', ddl: 'ALTER TABLE education_profiles ADD COLUMN IF NOT EXISTS student_id TEXT' },
+      { name: 'grade_system', ddl: 'ALTER TABLE education_profiles ADD COLUMN IF NOT EXISTS grade_system TEXT' },
+      { name: 'major_subjects', ddl: 'ALTER TABLE education_profiles ADD COLUMN IF NOT EXISTS major_subjects JSONB' },
+      { name: 'achievements', ddl: 'ALTER TABLE education_profiles ADD COLUMN IF NOT EXISTS achievements TEXT' },
+    ]);
+
+    // Ensure family_profiles columns exist
+    await ensureColumns('family_profiles', [
+      { name: 'middle_name', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS middle_name TEXT' },
+      { name: 'place_of_birth', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS place_of_birth TEXT' },
+      { name: 'gender', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS gender TEXT' },
+      { name: 'passport_number', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS passport_number TEXT' },
+      { name: 'passport_expiry', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS passport_expiry DATE' },
+      { name: 'passport_issuing_country', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS passport_issuing_country TEXT' },
+      { name: 'email', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS email TEXT' },
+      { name: 'phone', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS phone TEXT' },
+      { name: 'employer', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS employer TEXT' },
+      { name: 'is_minor', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS is_minor BOOLEAN DEFAULT false' },
+      { name: 'school_name', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS school_name TEXT' },
+      { name: 'grade', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS grade TEXT' },
+      { name: 'has_separate_address', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS has_separate_address BOOLEAN DEFAULT false' },
+      { name: 'address', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS address JSONB' },
+    ]);
+
+    // Ensure travel_history columns exist
+    await ensureColumns('travel_history', [
+      { name: 'visa_type', ddl: 'ALTER TABLE travel_history ADD COLUMN IF NOT EXISTS visa_type TEXT' },
+      { name: 'visa_number', ddl: 'ALTER TABLE travel_history ADD COLUMN IF NOT EXISTS visa_number TEXT' },
+      { name: 'visa_issued_date', ddl: 'ALTER TABLE travel_history ADD COLUMN IF NOT EXISTS visa_issued_date DATE' },
+      { name: 'visa_issued_by', ddl: 'ALTER TABLE travel_history ADD COLUMN IF NOT EXISTS visa_issued_by TEXT' },
+      { name: 'accommodation', ddl: 'ALTER TABLE travel_history ADD COLUMN IF NOT EXISTS accommodation TEXT' },
+      { name: 'sponsor_name', ddl: 'ALTER TABLE travel_history ADD COLUMN IF NOT EXISTS sponsor_name TEXT' },
+      { name: 'entry_port', ddl: 'ALTER TABLE travel_history ADD COLUMN IF NOT EXISTS entry_port TEXT' },
+      { name: 'exit_port', ddl: 'ALTER TABLE travel_history ADD COLUMN IF NOT EXISTS exit_port TEXT' },
+      { name: 'had_issues', ddl: 'ALTER TABLE travel_history ADD COLUMN IF NOT EXISTS had_issues BOOLEAN DEFAULT false' },
+      { name: 'issue_description', ddl: 'ALTER TABLE travel_history ADD COLUMN IF NOT EXISTS issue_description TEXT' },
+    ]);
 
     // Ensure indexes on form_draft_versions even if table already existed
     await sql`CREATE INDEX IF NOT EXISTS idx_form_draft_versions_form ON form_draft_versions(form_id);`;
