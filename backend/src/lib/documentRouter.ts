@@ -111,41 +111,64 @@ async function extractPassportDocument(pdfBuffer: Buffer): Promise<ExtractionRes
 }
 
 /**
- * Extract visa form fields using Azure Document Intelligence ONLY
- * NOTE: No fallback to Gemini - Azure only for testing/isolation
+ * Extract visa form fields
+ * Prefers Azure Document Intelligence, falls back to Gemini Vision
  */
 async function extractVisaForm(pdfBuffer: Buffer): Promise<ExtractionResult> {
-  if (!isAzureConfigured()) {
-    throw new Error('Azure Document Intelligence is not configured. Please set AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT and AZURE_DOCUMENT_INTELLIGENCE_KEY environment variables.');
+  // 1. Try Azure Document Intelligence if configured
+  if (isAzureConfigured()) {
+    try {
+      console.log('[Document Router] Using Azure Document Intelligence for form extraction');
+      const qualityAssessment = await assessDocumentQuality(pdfBuffer);
+      console.log(
+        `[Document Router] Quality assessment: ${qualityAssessment.quality} (score: ${qualityAssessment.score})`
+      );
+
+      // Use the new AzureFormExtractor
+      const azureResult = await azureFormExtractor.extractVisaForm(pdfBuffer);
+
+      // Apply Smart Document Processing
+      console.log('[Document Router] Applying Smart Document Processing...');
+      const smartAnalysis = smartDocumentProcessor.process(azureResult);
+
+      return {
+        fields: azureResult.fields,
+        queryResults: azureResult.queryResults,
+        tables: azureResult.tables,
+        selectionMarks: azureResult.selectionMarks,
+        barcodes: azureResult.barcodes,
+        markdownOutput: azureResult.markdownOutput,
+        extractionMethod: azureResult.extractionMethod,
+        overallConfidence: azureResult.metadata.overallConfidence,
+        pageCount: azureResult.metadata.pageCount,
+        processingTime: azureResult.processingTime,
+        qualityAssessment,
+        smartAnalysis,
+      };
+    } catch (azureError) {
+      console.warn('[Document Router] Azure extraction failed, falling back to Gemini.', azureError);
+    }
+  } else {
+    console.log('[Document Router] Azure not configured, skipping to Gemini fallback');
   }
 
-  console.log('[Document Router] Using Azure Document Intelligence for form extraction (NO FALLBACK)');
-  const qualityAssessment = await assessDocumentQuality(pdfBuffer);
-  console.log(
-    `[Document Router] Quality assessment: ${qualityAssessment.quality} (score: ${qualityAssessment.score})`
-  );
-
-  // Use the new AzureFormExtractor
-  const azureResult = await azureFormExtractor.extractVisaForm(pdfBuffer);
-
-  // Apply Smart Document Processing
-  console.log('[Document Router] Applying Smart Document Processing...');
-  const smartAnalysis = smartDocumentProcessor.process(azureResult);
-
-  return {
-    fields: azureResult.fields,
-    queryResults: azureResult.queryResults,
-    tables: azureResult.tables,
-    selectionMarks: azureResult.selectionMarks,
-    barcodes: azureResult.barcodes,
-    markdownOutput: azureResult.markdownOutput,
-    extractionMethod: azureResult.extractionMethod,
-    overallConfidence: azureResult.metadata.overallConfidence,
-    pageCount: azureResult.metadata.pageCount,
-    processingTime: azureResult.processingTime,
-    qualityAssessment,
-    smartAnalysis,
-  };
+  // 2. Fallback to Gemini Vision
+  console.log('[Document Router] Using Gemini Vision for form extraction (Fallback)');
+  try {
+    const pdfPages = await convertPDFToBase64Images(pdfBuffer);
+    const geminiResult = await extractFormFieldsWithGemini(pdfPages);
+    
+    return {
+      fields: geminiResult.fields as ExtractedField[],
+      extractionMethod: geminiResult.extractionMethod,
+      overallConfidence: geminiResult.overallConfidence,
+      pageCount: geminiResult.pageCount,
+      processingTime: geminiResult.processingTime,
+    };
+  } catch (geminiError) {
+    console.error('[Document Router] Gemini extraction also failed:', geminiError);
+    throw new Error('Failed to extract form fields using both Azure and Gemini. Please ensure the PDF is valid and legible.');
+  }
 }
 
 /**
