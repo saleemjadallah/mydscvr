@@ -340,6 +340,7 @@ export async function ensureTables() {
           form_version TEXT,
           official_url TEXT NOT NULL,
           field_mappings JSONB NOT NULL,
+          validation_rules JSONB,
           instructions TEXT,
           is_active BOOLEAN DEFAULT true NOT NULL,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
@@ -492,6 +493,7 @@ export async function ensureTables() {
     await ensureColumns('form_templates', [
       { name: 'form_version', ddl: 'ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS form_version TEXT' },
       { name: 'is_active', ddl: 'ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true NOT NULL', backfill: 'UPDATE form_templates SET is_active = true WHERE is_active IS NULL' },
+      { name: 'validation_rules', ddl: 'ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS validation_rules JSONB' },
     ]);
 
     // Ensure travel_history columns exist
