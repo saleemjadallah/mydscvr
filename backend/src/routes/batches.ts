@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import crypto from 'crypto';

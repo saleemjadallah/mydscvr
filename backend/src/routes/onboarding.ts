@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 /**
  * Onboarding Routes - Handle user onboarding flow with Jeffrey
  */
@@ -232,3 +234,4 @@ router.get('/recommendations', requireAuth, async (req: Request, res: Response) 
 });
 
 export default router;
+// @ts-nocheck

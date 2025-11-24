@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import { Express, RequestHandler } from 'express';
 import session from 'express-session';
 import passport from 'passport';

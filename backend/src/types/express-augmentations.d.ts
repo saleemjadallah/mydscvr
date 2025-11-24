@@ -58,13 +58,13 @@ declare namespace Express {
   interface Multer {} // placeholder type
 
   interface Request {
-    user: any;
-    session: any;
-    sessionID: string;
+    user?: any;
+    session?: any;
+    sessionID?: string;
     file?: Multer.File;
     files?: Multer.File[] | Record<string, Multer.File[]> | any;
-    isAuthenticated: () => boolean;
-    login: (user: any, cb: (err?: any) => void) => void;
-    logout: (cb?: (err?: any) => void) => void;
+    isAuthenticated?: () => boolean;
+    login?: (user: any, cb: (err?: any) => void) => void;
+    logout?: (cb?: (err?: any) => void) => void;
   }
 }

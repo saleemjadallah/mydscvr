@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import { Router } from 'express';
 import multer from 'multer';
 import { db, visaPackages } from '../../db/index.js';

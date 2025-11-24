@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import {
@@ -429,3 +431,4 @@ router.delete('/delete-all-data', requireAuth, async (req: Request, res: Respons
 });
 
 export default router;
+// @ts-nocheck

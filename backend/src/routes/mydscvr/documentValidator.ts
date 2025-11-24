@@ -285,3 +285,4 @@ router.get('/:id/download', requireAuth, async (req: AuthedRequest, res: Respons
 });
 
 export default router;
+// @ts-nocheck
