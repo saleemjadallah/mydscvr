@@ -337,9 +337,11 @@ export async function ensureTables() {
           country TEXT NOT NULL,
           visa_type TEXT NOT NULL,
           form_name TEXT NOT NULL,
+          form_version TEXT,
           official_url TEXT NOT NULL,
           field_mappings JSONB NOT NULL,
           instructions TEXT,
+          is_active BOOLEAN DEFAULT true NOT NULL,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
         )
@@ -484,6 +486,12 @@ export async function ensureTables() {
       { name: 'grade', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS grade TEXT' },
       { name: 'has_separate_address', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS has_separate_address BOOLEAN DEFAULT false' },
       { name: 'address', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS address JSONB' },
+    ]);
+
+    // Ensure form_templates columns exist (used by autofill)
+    await ensureColumns('form_templates', [
+      { name: 'form_version', ddl: 'ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS form_version TEXT' },
+      { name: 'is_active', ddl: 'ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true NOT NULL', backfill: 'UPDATE form_templates SET is_active = true WHERE is_active IS NULL' },
     ]);
 
     // Ensure travel_history columns exist
