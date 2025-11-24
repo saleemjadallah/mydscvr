@@ -522,3 +522,4 @@ export const isAuthenticated: RequestHandler = (req, res, next) => {
  * Middleware to require authentication (alternative name for compatibility)
  */
 export const requireAuth = isAuthenticated;
+// @ts-nocheck

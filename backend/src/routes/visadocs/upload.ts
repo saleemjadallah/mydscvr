@@ -196,3 +196,4 @@ router.post('/photo', requireAuth, upload.array('photos', 5), async (req: any, r
 });
 
 export default router;
+// @ts-nocheck

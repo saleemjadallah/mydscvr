@@ -26,8 +26,11 @@ declare module 'passport' {
 }
 
 declare module 'passport-local' {
-  const passportLocal: any;
-  export = passportLocal;
+  export class Strategy {
+    constructor(...args: any[]);
+  }
+  const Strategy: any;
+  export default Strategy;
 }
 
 declare module 'bcryptjs' {
@@ -46,16 +49,22 @@ declare module 'archiver' {
 }
 
 declare namespace Express {
-  interface Multer {} // placeholder so references to Express.Multer compile
+  namespace Multer {
+    interface File {
+      [key: string]: any;
+    }
+  }
+
+  interface Multer {} // placeholder type
 
   interface Request {
-    user?: any;
-    session?: any;
-    sessionID?: string;
-    file?: any;
-    files?: any;
-    isAuthenticated?: () => boolean;
-    login?: (user: any, cb: (err?: any) => void) => void;
-    logout?: (cb?: (err?: any) => void) => void;
+    user: any;
+    session: any;
+    sessionID: string;
+    file?: Multer.File;
+    files?: Multer.File[] | Record<string, Multer.File[]> | any;
+    isAuthenticated: () => boolean;
+    login: (user: any, cb: (err?: any) => void) => void;
+    logout: (cb?: (err?: any) => void) => void;
   }
 }

@@ -55,7 +55,7 @@ async function createAndUploadZip(imageUrls: string[]): Promise<string> {
   const archive = archiver('zip', { zlib: { level: 9 } });
   const chunks: Buffer[] = [];
 
-  archive.on('data', (chunk) => chunks.push(chunk));
+  archive.on('data', (chunk: any) => chunks.push(chunk));
 
   const zipPromise = new Promise<Buffer>((resolve, reject) => {
     archive.on('end', () => resolve(Buffer.concat(chunks)));
