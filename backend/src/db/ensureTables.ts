@@ -300,7 +300,7 @@ export async function ensureTables() {
         CREATE TABLE IF NOT EXISTS family_profiles (
           id VARCHAR PRIMARY KEY,
           user_id TEXT NOT NULL REFERENCES users(id),
-          profile_id VARCHAR REFERENCES user_profiles(id),
+          primary_profile_id VARCHAR REFERENCES user_profiles(id),
           relationship TEXT NOT NULL,
           first_name TEXT NOT NULL,
           last_name TEXT NOT NULL,
@@ -465,6 +465,11 @@ export async function ensureTables() {
 
     // Ensure family_profiles columns exist
     await ensureColumns('family_profiles', [
+      {
+        name: 'primary_profile_id',
+        ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS primary_profile_id VARCHAR REFERENCES user_profiles(id)',
+        backfill: 'UPDATE family_profiles SET primary_profile_id = profile_id WHERE primary_profile_id IS NULL AND profile_id IS NOT NULL',
+      },
       { name: 'middle_name', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS middle_name TEXT' },
       { name: 'place_of_birth', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS place_of_birth TEXT' },
       { name: 'gender', ddl: 'ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS gender TEXT' },
