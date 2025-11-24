@@ -68,6 +68,14 @@ export async function ensureTables() {
 
     console.log('[DB] Chat sessions tables verified/created');
 
+    // Apply filled forms template FK migration
+    const filledFormsFKPath = join(__dirname, '..', '..', 'drizzle', '0005_add_filled_forms_template_fk.sql');
+    if (require('fs').existsSync(filledFormsFKPath)) {
+      const filledFormsFKSQL = readFileSync(filledFormsFKPath, 'utf-8');
+      await sql.unsafe(filledFormsFKSQL);
+      console.log('[DB] Filled forms template FK verified/created');
+    }
+
     // Verify critical columns exist
     const result = await sql`
       SELECT column_name
@@ -333,7 +341,7 @@ export async function ensureTables() {
       // Create form_templates table
       await sql`
         CREATE TABLE IF NOT EXISTS form_templates (
-          id VARCHAR PRIMARY KEY,
+          id SERIAL PRIMARY KEY,
           country TEXT NOT NULL,
           visa_type TEXT NOT NULL,
           form_name TEXT NOT NULL,
@@ -354,7 +362,6 @@ export async function ensureTables() {
           id VARCHAR PRIMARY KEY,
           user_id TEXT NOT NULL REFERENCES users(id),
           profile_id VARCHAR REFERENCES user_profiles(id),
-          template_id VARCHAR REFERENCES form_templates(id),
           filled_data JSONB NOT NULL,
           pdf_url TEXT,
           status TEXT NOT NULL DEFAULT 'draft',
@@ -368,7 +375,7 @@ export async function ensureTables() {
           filled_fields INTEGER,
           valid_fields INTEGER,
           completion_percentage INTEGER,
-          form_template_id VARCHAR,
+          form_template_id INTEGER REFERENCES form_templates(id),
           original_pdf_url TEXT,
           filled_pdf_url TEXT,
           output_url TEXT,

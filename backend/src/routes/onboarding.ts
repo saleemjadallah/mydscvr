@@ -7,7 +7,8 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { filledForms } from '../db/schema-formfiller.js';
+import { eq, and } from 'drizzle-orm';
 import {
   enrichTravelProfile,
   generateRecommendations,
@@ -97,6 +98,20 @@ router.post('/complete', requireAuth, async (req: Request, res: Response) => {
         updatedAt: new Date(),
       })
       .where(eq(users.id, userId));
+
+    // Archive existing form drafts for this user so they start fresh
+    await db
+      .update(filledForms)
+      .set({
+        status: 'archived',
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(filledForms.userId, userId),
+          eq(filledForms.status, 'draft')
+        )
+      );
 
     console.log('[Onboarding] Completed for user:', userId);
 
