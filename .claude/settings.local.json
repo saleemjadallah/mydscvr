@@ -18,7 +18,10 @@
       "Bash(npm run db:push:*)",
       "Bash(git -C /Users/saleemjadallah/Desktop/MyDscvr-Headshot/frontend status)",
       "Bash(git -C /Users/saleemjadallah/Desktop/MyDscvr-Headshot/frontend add src/components/DashboardLayout.tsx src/components/forms/ src/lib/api-profile.ts src/lib/validation-rules.ts src/pages/ProfileOnboardingPage.tsx src/pages/ProfileSettingsPage.tsx)",
-      "Bash(git -C /Users/saleemjadallah/Desktop/MyDscvr-Headshot/frontend log --oneline -3)"
+      "Bash(git -C /Users/saleemjadallah/Desktop/MyDscvr-Headshot/frontend log --oneline -3)",
+      "Bash(PGPASSWORD=gGnFWNfcRdhJldFjonOhYhijloPAASMw psql:*)",
+      "Bash(mkdir:*)",
+      "Bash(npx prisma generate:*)"
     ],
     "deny": [],
     "ask": []

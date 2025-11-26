@@ -4,248 +4,330 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-HeadShotHub is an AI-powered SaaS that generates professional headshots optimized for different platforms (LinkedIn, corporate websites, resumes, social media, etc.). Users upload 12-20 photos, select a pricing plan and style templates, and receive 40-200 AI-generated headshots within 1-3 hours.
+MyDscvr-Edu (K-6 AI Tutor) is an AI-powered educational platform designed for K-6 students. The platform features Jeffrey, a friendly AI tutor that helps students learn by processing uploaded lesson content (PDFs, images, YouTube videos) and providing interactive, contextual assistance through a chat interface.
+
+**Key Features:**
+- Upload and process educational content (PDFs, images, YouTube links)
+- Interactive chat with Jeffrey, the AI tutor
+- Lesson viewing with structured content display
+- Flashcard and quiz generation
+- Study guide creation
+- Context-aware learning assistance
 
 **Tech Stack:**
-- **Frontend**: React 19 + TypeScript + Vite + Tailwind CSS v4
-- **Backend**: Node.js + Express + TypeScript + PostgreSQL (Drizzle ORM) + Redis (BullMQ)
-- **AI**: Google Gemini API for image generation
-- **Storage**: Cloudflare R2 (S3-compatible)
-- **Payments**: Stripe (one-time payments, no subscriptions)
+- **Frontend**: React 18 + Vite + Tailwind CSS
+- **AI**: Google Gemini API (currently mocked for development)
+- **State Management**: React Context API (LessonContext)
+- **Routing**: React Router v7
+- **UI Libraries**: Framer Motion, Lucide React
+- **File Processing**: PDF.js, react-dropzone
+- **Face-Swap Service**: Python/Flask microservice (separate service)
 
 ## Development Commands
 
 ### Frontend (`frontend/`)
 ```bash
 npm run dev          # Start dev server (http://localhost:5173)
-npm run build        # Build for production (runs tsc then vite build)
+npm run build        # Build for production (outputs to dist/)
 npm run preview      # Preview production build
 npm run lint         # Run ESLint
 ```
 
-### Backend (`backend/`)
+### Face-Swap Service (`face-swap-service/`)
 ```bash
-npm run dev          # Start dev server with tsx watch (http://localhost:3000)
-npm run build        # Compile TypeScript to dist/
-npm start            # Run compiled production build
-npm run db:push      # Push schema changes to database (Drizzle)
-npm run db:studio    # Open Drizzle Studio for database inspection
+cd face-swap-service
+pip install -r requirements.txt
+python app.py        # Start service (http://localhost:5000)
 ```
 
 ### Development Workflow
-1. Start backend: `cd backend && npm run dev`
-2. Start frontend in new terminal: `cd frontend && npm run dev`
-3. Backend runs on port 3000, frontend on port 5173
-4. For database changes: Edit `backend/src/db/schema.ts` then run `npm run db:push`
+1. Start frontend: `cd frontend && npm run dev`
+2. Frontend runs on port 5173
+3. For face-swap service (if needed): `cd face-swap-service && python app.py` (port 5000)
 
 ## Architecture
 
 ### Monorepo Structure
 ```
-HeadShotHub/
-├── frontend/          # React SPA
+MyDscvr-Edu/
+├── frontend/              # React SPA
 │   ├── src/
-│   │   ├── pages/     # Route components (HomePage, DashboardPage, etc.)
-│   │   ├── components/ # Reusable UI components
-│   │   ├── lib/       # API client (api.ts), plans, templates, utils
-│   │   └── types/     # TypeScript type definitions
-│   └── public/assets/ # Static assets (template previews, sample images)
+│   │   ├── pages/        # Route components (HomePage, StudyPage)
+│   │   ├── components/   # Reusable UI components
+│   │   │   ├── Avatar/    # Jeffrey avatar component
+│   │   │   ├── Chat/      # ChatInterface component
+│   │   │   ├── Layout/    # MainLayout component
+│   │   │   ├── Lesson/    # LessonView component
+│   │   │   └── Upload/    # Upload components (Modal, Dropzone, etc.)
+│   │   ├── context/       # React Context (LessonContext)
+│   │   ├── hooks/         # Custom hooks (useGemini, useLessonProcessor)
+│   │   ├── services/      # API services (geminiService)
+│   │   └── utils/         # Utility functions (fileProcessors, youtubeUtils)
+│   ├── dist/              # Production build output
+│   └── package.json
 │
-└── backend/           # Express API
-    ├── src/
-    │   ├── index.ts   # Main Express app with auth routes
-    │   ├── db/        # Drizzle ORM schema and connection
-    │   ├── lib/       # Core services (gemini, storage, stripe, queue, templates)
-    │   ├── routes/    # API route handlers (TODO - mostly in index.ts currently)
-    │   └── middleware/ # Express middleware (TODO)
-    └── drizzle.config.ts # Drizzle Kit configuration
+├── face-swap-service/     # Python Flask microservice
+│   ├── app.py             # Flask application
+│   ├── requirements.txt   # Python dependencies
+│   └── Dockerfile         # Docker configuration
+│
+├── backend/               # Backend (not yet implemented)
+│
+└── Docs/                  # Project documentation
 ```
 
-### Database Schema (PostgreSQL + Drizzle ORM)
-
-**Users Table** (`users`):
-- Authentication and user management
-- Fields: `id`, `email`, `password`, `name`, `uploads_used`, `batches_created`, `createdAt`
-- Password hashing with bcryptjs
-
-**Headshot Batches Table** (`headshot_batches`):
-- Core entity tracking each generation job
-- Input: `uploadedPhotos` (R2 URLs), `photoCount`, `plan`, `styleTemplates`
-- Output: `generatedHeadshots` (array of objects with URL, template, specs, etc.)
-- Status tracking: `processing` → `completed` | `failed`
-- Pricing: `amountPaid`, `stripePaymentId`
-
-**Edit Requests Table** (`edit_requests`):
-- Tracks user edit credits usage
-- Types: `background_change`, `outfit_change`, `regenerate`
-- Status: `pending` → `completed` | `failed`
-
-### Style Template System
-
-Eight templates defined in both `backend/src/lib/templates.ts` and `frontend/src/lib/templates.ts`:
-1. **linkedin**: 1:1 (1024x1024) - Business formal for LinkedIn profiles
-2. **corporate**: 4:5 (1080x1350) - Team pages, company websites
-3. **creative**: 3:4 (1080x1440) - Portfolio platforms
-4. **resume**: 2:3 (800x1200) - Resume/CV applications
-5. **social**: 1:1 (1080x1080) - Instagram/Facebook/Twitter
-6. **executive**: 2:3 (1080x1620) - Executive leadership pages
-7. **casual**: 4:5 (1080x1350) - Approachable team photos
-8. **speaker**: 16:9 (1920x1080) - Conference promotion
-
-Each template includes:
-- Platform-specific dimensions and aspect ratios
-- Detailed `geminiPrompt` for AI generation
-- Background, outfit, lighting, and expression guidelines
-
-### Payment Flow (Stripe One-Time Payments)
-
-1. User uploads photos on `/upload` page
-2. Selects plan (Basic $29, Professional $39, Executive $59)
-3. Selects style templates
-4. Backend creates Stripe checkout session with metadata
-5. Stripe redirects to success URL: `/processing?session_id={ID}`
-6. Stripe webhook (`checkout.session.completed`) triggers:
-   - Batch creation in database
-   - Job enqueued in BullMQ/Redis
-   - Confirmation email sent
-7. Background worker processes generation job
-8. Completion email sent when ready
-
-**Important**: All payments are one-time purchases, no subscription logic needed.
-
-### Image Storage (Cloudflare R2)
+### Application Flow
 
 ```
-headshot-storage/
-├── uploads/{userId}/{batchId}/*.jpg       # Original uploaded photos
-├── generated/{userId}/{batchId}/*.jpg     # AI-generated headshots
-└── thumbnails/{userId}/{batchId}/*.jpg    # Thumbnail versions
+User Journey:
+1. HomePage → Landing page with features and CTA
+2. StudyPage → Main learning interface
+   ├── Upload Modal → User uploads content (PDF/image/YouTube)
+   ├── Processing → Content processed with Gemini AI
+   ├── Lesson View → Structured lesson display (left side)
+   └── Chat Interface → Interactive chat with Jeffrey (right side)
 ```
+
+### State Management (LessonContext)
+
+The `LessonContext` manages:
+- **Current Lesson**: Active lesson being viewed
+- **Lessons Array**: All uploaded lessons
+- **Processing State**: Upload/processing progress
+- **Error Handling**: Error states and messages
+
+**Key Actions:**
+- `startProcessing()` - Begin upload/processing
+- `addLesson(lesson)` - Add new lesson to context
+- `setCurrentLesson(lessonId)` - Switch active lesson
+- `updateProgress(progress)` - Update processing progress
+- `setProcessingStage(stage)` - Update processing stage
+
+### Component Architecture
+
+**Pages:**
+- `HomePage.jsx` - Landing page with hero, features, and CTA
+- `StudyPage.jsx` - Main study interface with lesson view and chat
+
+**Components:**
+- `LessonView` - Displays structured lesson content (summary, chapters, key points)
+- `ChatInterface` - Interactive chat with Jeffrey (AI tutor)
+- `UploadModal` - Main upload interface
+- `FileDropzone` - Drag & drop file upload
+- `YouTubeInput` - YouTube URL input and processing
+- `ProcessingAnimation` - Loading states during processing
+- `UploadButton` - Trigger button for upload modal
+- `Jeffrey` - Avatar component for the AI tutor
+- `MainLayout` - Layout wrapper for study page
+
+### AI Integration (Google Gemini)
+
+**Current Status:** Mocked for frontend development
+
+**Service:** `frontend/src/services/geminiService.js`
+- Currently uses mock implementations with delays
+- Production implementation will use `@google/generative-ai` package
+- Functions:
+  - `processWithGemini(text, task)` - Main processing function
+  - `generateFlashcards(text, count)` - Generate flashcards
+  - `generateQuiz(text, count)` - Generate quiz questions
+
+**Tasks Supported:**
+- `analyze` - Analyze lesson content
+- `study_guide` - Create study guide
+- `question` - Answer questions about content
+
+**Hooks:**
+- `useGemini.js` - Hook for Gemini API interactions
+- `useLessonProcessor.js` - Hook for processing uploaded content
+
+### File Processing
+
+**Supported Formats:**
+- PDF files (via PDF.js)
+- Image files (JPG, PNG, etc.)
+- YouTube URLs (extract transcript/video info)
+
+**Processing Pipeline:**
+1. User uploads file/URL
+2. File validated (type, size)
+3. Content extracted (text from PDF, image OCR, YouTube transcript)
+4. Content sent to Gemini for analysis
+5. Structured lesson data created
+6. Lesson added to context
+7. User can interact with lesson via chat
+
+**Utilities:**
+- `fileProcessors.js` - File processing utilities
+- `youtubeUtils.js` - YouTube URL parsing and validation
+
+### Styling
+
+**Design System:**
+- **Colors**: Custom Tailwind colors (nanobanana-blue, nanobanana-yellow, nanobanana-green)
+- **Typography**: Comic-style fonts for playful, kid-friendly design
+- **Components**: Bold borders, shadows, rounded corners
+- **Animations**: Framer Motion for smooth interactions
+
+**Tailwind Config:**
+- Custom color palette defined in `tailwind.config.js`
+- PostCSS configured for processing
 
 ## Key Integration Points
 
-### Authentication (Passport.js + Session)
-- Strategy: Local strategy with email/password
-- Session stored with express-session (HTTP-only cookies)
-- Routes: `/api/auth/register`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`
-- Backend: `src/index.ts` lines 39-156
+### Upload Flow
+1. User clicks upload button → `UploadModal` opens
+2. User selects file/URL → `FileDropzone` or `YouTubeInput`
+3. File validated → Processing starts
+4. Content extracted → Sent to Gemini
+5. Lesson created → Added to `LessonContext`
+6. User can view lesson and chat with Jeffrey
 
-### API Client (Frontend)
-- Centralized in `frontend/src/lib/api.ts`
-- Uses Axios with credentials: true for session cookies
-- Base URL from `VITE_API_URL` environment variable
+### Chat Interface
+- Context-aware: Jeffrey knows about current lesson
+- Uses lesson content to provide relevant answers
+- Maintains conversation history
+- Can generate flashcards, quizzes, study guides
 
-### Job Queue (BullMQ + Redis)
-- Background processing for AI generation (avoids long request timeouts)
-- Queue setup in `backend/src/lib/queue.ts`
-- Jobs enqueued after successful Stripe payment
-- Worker processes jobs asynchronously
-
-### AI Generation (Google Gemini)
-- Integration in `backend/src/lib/gemini.ts`
-- Uses template-specific prompts from `templates.ts`
-- Processes multiple variations per template based on plan
+### Lesson Display
+- Shows structured content: summary, chapters, key points, vocabulary
+- Interactive elements for navigation
+- Responsive layout (lesson on left, chat on right)
 
 ## Important Architectural Notes
 
-### Shared Configuration
-- **Plans**: Defined in both `backend/src/lib/plans.ts` and `frontend/src/lib/plans.ts`. Keep in sync.
-- **Templates**: Defined in both `backend/src/lib/templates.ts` and `frontend/src/lib/templates.ts`. Keep in sync.
-- When modifying plans or templates, update both frontend and backend versions.
-
 ### Environment Variables
-Backend requires: `DATABASE_URL`, `GEMINI_API_KEY`, `SESSION_SECRET`, `FRONTEND_URL`, `R2_*` credentials, `REDIS_URL`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_*` IDs.
-
-Frontend requires: `VITE_API_URL`, `VITE_STRIPE_PUBLISHABLE_KEY`.
-
-### Type Safety
-- Strict TypeScript mode enabled in both frontend and backend
-- Database types auto-generated from Drizzle schema via `$inferSelect` and `$inferInsert`
-- Shared types should be duplicated or kept in sync between frontend/backend
+Frontend requires:
+- `VITE_API_URL` - Backend API URL (when backend is implemented)
+- `VITE_GEMINI_API_KEY` - Google Gemini API key (for production)
 
 ### Current Implementation Status
-- ✅ User authentication (register/login)
-- ✅ Database schema defined
-- ✅ Style templates configured
-- ✅ Frontend pages scaffolded (8 pages)
-- ✅ Pricing plans defined
-- ⏳ API routes for batches/checkout (TODO placeholders exist)
-- ⏳ Gemini AI integration (setup code exists, needs completion)
-- ⏳ Stripe webhook handling (needs implementation)
-- ⏳ BullMQ job processing (queue setup exists, worker needs implementation)
-- ⏳ Email notifications (nodemailer in dependencies)
+- ✅ Frontend UI components
+- ✅ Upload flow (file/YouTube)
+- ✅ Lesson context management
+- ✅ Chat interface UI
+- ✅ Lesson view display
+- ⏳ Gemini API integration (mocked, needs production implementation)
+- ⏳ Backend API (not yet implemented)
+- ⏳ User authentication (not yet implemented)
+- ⏳ Database/storage (not yet implemented)
 
-### Testing Payments
-Use Stripe test mode:
-- Test card: `4242 4242 4242 4242`
-- Any future expiry date
-- Any 3-digit CVC
-- Any ZIP code
+### Mock vs Production
+
+**Current (Development):**
+- Gemini API calls are mocked with delays
+- No backend API
+- All state managed in frontend context
+- No persistence (lessons lost on refresh)
+
+**Production (Future):**
+- Real Gemini API integration
+- Backend API for processing
+- Database for lesson persistence
+- User authentication
+- File storage (Cloudflare R2)
+
+## Cloudflare R2 Storage
+
+**CDN URL:** `https://cdn.mydscvr.ai`
+
+**Buckets:**
+- **mydscvr-eduk6-uploads** (`/uploads/`): Stores files uploaded by parents/students (PDFs, lesson images, profile avatars)
+- **mydscvr-eduk6-ai-content** (`/ai/`): Stores AI-generated content from Gemini (images, videos, audio for lessons)
+- **mydscvr-eduk6-static** (`/static/`): Stores app assets like mascot images, badges, sounds, and UI graphics
+
+**Backend Storage Service:** `backend/src/services/storageService.ts`
+- Presigned URL generation for direct uploads
+- COPPA-compliant family/child data hierarchy
+- Path structure: `families/{familyId}/{childId}/lessons/{lessonId}/`
 
 ## Development Guidelines
 
-### Adding New API Routes
-1. Create route handler (consider organizing in `backend/src/routes/`)
-2. Add to Express app in `backend/src/index.ts`
-3. Update frontend API client (`frontend/src/lib/api.ts`)
-4. Ensure authentication middleware if needed
+### Adding New Components
+1. Create component in appropriate directory (`components/`)
+2. Follow existing styling patterns (Tailwind + custom colors)
+3. Use Framer Motion for animations
+4. Ensure responsive design (mobile-friendly)
 
-### Adding New Style Templates
-1. Add to `backend/src/lib/templates.ts` with geminiPrompt
-2. Add to `frontend/src/lib/templates.ts` with UI metadata
-3. Create preview image in `frontend/public/assets/templates/`
-4. Update template selection UI if needed
+### Adding New Features
+1. Update `LessonContext` if state management needed
+2. Add to appropriate service/hook
+3. Update UI components as needed
+4. Test upload flow if file-related
 
-### Database Migrations
-For development: `npm run db:push` (directly pushes schema changes)
-For production: Use `drizzle-kit generate` then apply migrations
+### File Upload
+- Use `react-dropzone` for drag & drop
+- Validate file types and sizes
+- Show processing animation during upload
+- Handle errors gracefully
 
-### Image Processing Pipeline
-1. User uploads → validated → stored in R2 `/uploads/`
-2. Payment confirmed → batch created → job enqueued
-3. Worker fetches uploads → calls Gemini API per template
-4. Generated images → processed with Sharp (resize/optimize)
-5. Uploaded to R2 `/generated/` and `/thumbnails/`
-6. Batch updated with results → user notified
-
-## Common Patterns
-
-### Creating Protected Routes (Backend)
-```typescript
-const requireAuth = (req, res, next) => {
-  if (!req.isAuthenticated()) {
-    return res.status(401).json({ success: false, error: 'Not authenticated' });
-  }
-  next();
-};
-
-app.get('/api/protected', requireAuth, (req, res) => {
-  // Handler
-});
-```
-
-### API Response Format
-```typescript
-// Success
-{ success: true, data: {...} }
-
-// Error
-{ success: false, error: "Error message" }
-```
-
-### File Upload Handling
-Use multer middleware for multipart/form-data, then upload to R2 via `@aws-sdk/client-s3`.
+### Chat Interface
+- Maintain conversation context
+- Reference current lesson when answering
+- Use Jeffrey avatar for visual consistency
+- Support markdown formatting in responses
 
 ## Deployment
 
-- **Frontend**: Cloudflare Pages (build: `npm run build`, output: `dist/`)
-- **Backend**: Railway (with PostgreSQL and Redis add-ons)
-- **Storage**: Cloudflare R2 bucket
-- Set all environment variables in respective platforms
+### Frontend
+- **Platform**: Cloudflare Pages or Vercel
+- **Build Command**: `npm run build`
+- **Output Directory**: `dist/`
+- **Environment Variables**: Set in deployment platform
+
+### Face-Swap Service
+- **Platform**: Railway or similar
+- **Docker**: Use provided Dockerfile
+- **Port**: 5000 (or set via PORT env var)
 
 ## Reference Documentation
 
-For detailed architecture decisions, see:
-- [PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md) - Complete architecture and design
-- [README.md](./README.md) - Setup and tech stack
-- [QUICKSTART.md](./QUICKSTART.md) - Local development setup
+For detailed information, see:
+- `Docs/UPLOAD_FLOW_IMPLEMENTATION_PLAN.md` - Complete upload flow documentation
+- `Docs/JEFFREY_AI_ASSISTANT.md` - Jeffrey AI assistant details
+- `Docs/PROJECT_OVERVIEW.md` - Project overview (may reference other projects)
+- `frontend/UPLOAD_FLOW_IMPLEMENTATION_PLAN.md` - Frontend-specific upload flow
+
+## Common Patterns
+
+### Using LessonContext
+```javascript
+import { useLessonContext } from '../context/LessonContext';
+
+function MyComponent() {
+    const { currentLesson, addLesson, startProcessing } = useLessonContext();
+    // Use context values and actions
+}
+```
+
+### File Upload Pattern
+```javascript
+import { useDropzone } from 'react-dropzone';
+
+const { getRootProps, getInputProps } = useDropzone({
+    onDrop: (files) => {
+        // Process files
+    },
+    accept: {
+        'application/pdf': ['.pdf'],
+        'image/*': ['.jpg', '.png']
+    }
+});
+```
+
+### Chat Message Format
+```javascript
+{
+    id: 'msg-123',
+    role: 'user' | 'assistant',
+    content: 'Message text',
+    timestamp: '2024-01-01T00:00:00Z'
+}
+```
+
+## Notes
+
+- The face-swap service appears to be from a different project (HeadShotHub) but is included in this repo
+- Backend directory exists but is empty - backend implementation is future work
+- Current focus is on frontend development with mocked AI services
+- Production deployment will require backend API and database setup

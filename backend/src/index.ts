@@ -1,244 +1,193 @@
-import dotenv from 'dotenv';
-// Load environment variables first, before any other imports that might use them
-dotenv.config();
-
+// NanoBanana K-6 AI Learning Platform - Backend Entry Point
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import cookieParser from 'cookie-parser';
-import multer from 'multer';
-import crypto from 'crypto';
-import { setupAuth, requireAuth } from './lib/auth.js';
-import batchesRouter from './routes/batches.js';
-import visadocsRouter from './routes/visadocs/index.js';
-import mydscvrRouter from './routes/mydscvr/index.js';
-import onboardingRouter from './routes/onboarding.js';
-import profileRouter from './routes/profile.js';
-import formFillerRouter from './routes/formFiller.js';
-import photoRouter from './routes/photo.js';
-import { ensureTables } from './db/ensureTables.js';
-import { uploadBuffer, optimizeUploadedImage } from './lib/storage.js';
+import helmet from 'helmet';
+
+import { config, validateEnv } from './config/index.js';
+import { prisma } from './config/database.js';
+import { redis } from './config/redis.js';
+import { logger } from './utils/logger.js';
+import {
+  errorHandler,
+  notFoundHandler,
+  standardRateLimit,
+} from './middleware/index.js';
+import { attachRequestId, requestLogger } from './middleware/requestLogger.js';
+
+// Routes
+import authRoutes from './routes/auth.routes.js';
+import uploadRoutes from './routes/upload.routes.js';
+
+// Services initialization
+import { initializeContentProcessor, shutdownContentProcessor } from './services/learning/contentProcessor.js';
+import { badgeService } from './services/gamification/badgeService.js';
+
+// Validate environment
+try {
+  validateEnv();
+} catch (error) {
+  logger.error('Environment validation failed', { error });
+  process.exit(1);
+}
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// Trust Railway/Cloudflare reverse proxy for secure cookies
-// This is critical for HTTPS session cookies to work properly
-app.set('trust proxy', 1);
+// ============================================
+// MIDDLEWARE SETUP
+// ============================================
 
-// Ensure database tables exist on startup
-console.log('Checking database tables...');
-await ensureTables();
-console.log('Database tables ready.');
-
-// Parse allowed origins from environment (comma-separated)
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
-  : [process.env.FRONTEND_URL || 'http://localhost:5173'];
-
-// CORS configuration (must be BEFORE body parsing for Stripe webhooks)
-app.use(
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-  })
-);
-
-// Cookie parsing middleware (must be before session)
-app.use(cookieParser());
-
-// Body parsing middleware
-// IMPORTANT: Preserve raw body for Stripe webhook signature verification
-app.use(
-  express.json({
-    limit: '50mb', // Increase limit for base64 images in vision API requests
-    verify: (req: any, _res, buf) => {
-      req.rawBody = buf; // Save raw buffer for Stripe
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
     },
-  })
-);
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-// Setup authentication (session + passport + routes)
-await setupAuth(app);
-
-// Health check route
-app.get('/api/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    message: 'HeadShotHub API is running',
-    timestamp: new Date().toISOString(),
-    version: '1.0.1',
-  });
-});
-
-// Debug endpoint to check session configuration
-app.get('/api/debug/session', (req: any, res) => {
-  res.json({
-    sessionID: req.sessionID,
-    session: req.session,
-    cookies: req.cookies,
-    headers: {
-      cookie: req.headers.cookie,
-      origin: req.headers.origin,
-      host: req.headers.host,
-    },
-    isAuthenticated: req.isAuthenticated(),
-    user: req.user,
-    sessionConfig: {
-      secure: process.env.SESSION_COOKIE_SECURE,
-      sameSite: process.env.SESSION_COOKIE_SAMESITE,
-      domain: process.env.SESSION_COOKIE_DOMAIN,
-    }
-  });
-});
-
-// Test session creation
-app.post('/api/debug/test-session', (req: any, res) => {
-  req.session.testValue = 'session-test-' + Date.now();
-  req.session.save((err: any) => {
-    if (err) {
-      console.error('[Session Test] Save error:', err);
-      return res.status(500).json({
-        error: 'Session save failed',
-        details: err.message
-      });
-    }
-    res.json({
-      message: 'Session created',
-      sessionID: req.sessionID,
-      testValue: req.session.testValue,
-      cookie: req.session.cookie
-    });
-  });
-});
-
-// Protected route example
-app.get('/api/user/profile', requireAuth, (req, res) => {
-  res.json(req.user);
-});
-
-// Configure multer for memory storage
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    files: 20,
-    fileSize: 15 * 1024 * 1024, // 15MB per photo
   },
-});
+}));
 
-// Direct upload endpoint - simpler implementation
-app.post('/api/upload', requireAuth, upload.array('photos', 20), async (req: any, res) => {
+// CORS configuration
+app.use(cors({
+  origin: config.allowedOrigins,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+// Request ID and logging
+app.use(attachRequestId);
+app.use(requestLogger);
+
+// Body parsing
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Rate limiting (global)
+app.use(standardRateLimit);
+
+// ============================================
+// ROUTES
+// ============================================
+
+// Health check (no auth required)
+app.get('/health', async (_req, res) => {
   try {
-    const files = (req.files || []) as Express.Multer.File[];
+    // Check database connection
+    await prisma.$queryRaw`SELECT 1`;
 
-    if (!files.length) {
-      return res.status(400).json({ success: false, error: 'No photos uploaded' });
-    }
+    // Check Redis connection
+    await redis.ping();
 
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ success: false, error: 'User not authenticated' });
-    }
-
-    const uploadPrefix = `session-${Date.now()}-${crypto.randomUUID()}`;
-    const uploadedUrls: string[] = [];
-
-    for (let index = 0; index < files.length; index++) {
-      const file = files[index];
-
-      if (!file.mimetype.startsWith('image/')) {
-        return res.status(400).json({ success: false, error: 'Only image uploads are allowed' });
-      }
-
-      // Optimize image
-      const processedBuffer = await optimizeUploadedImage(file.buffer);
-
-      // Upload to R2
-      const key = `uploads/${userId}/${uploadPrefix}/${index}.jpg`;
-      const url = await uploadBuffer(processedBuffer, key, 'image/jpeg');
-      uploadedUrls.push(url);
-    }
-
-    return res.json({ success: true, data: uploadedUrls });
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      version: process.env.npm_package_version || '1.0.0',
+      environment: config.nodeEnv,
+    });
   } catch (error) {
-    console.error('[Upload] Failed:', error);
-    return res.status(500).json({ success: false, error: 'Failed to upload photos' });
+    res.status(503).json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      error: 'Service dependencies unavailable',
+    });
   }
 });
 
-// ========================================
-// HEADSHOT ROUTES
-// ========================================
-app.use('/api/batches', batchesRouter);
+// API routes
+app.use('/api/auth', authRoutes);
+app.use('/api/upload', uploadRoutes);
 
-// ========================================
-// VISADOCS ROUTES
-// ========================================
-app.use('/api/visadocs', visadocsRouter);
+// TODO: Add remaining routes as they're implemented
+// app.use('/api/children', childRoutes);
+// app.use('/api/lessons', lessonRoutes);
+// app.use('/api/chat', chatRoutes);
+// app.use('/api/flashcards', flashcardRoutes);
+// app.use('/api/quizzes', quizRoutes);
+// app.use('/api/gamification', gamificationRoutes);
+// app.use('/api/parent', parentRoutes);
 
-// ========================================
-// MYDSCVR CORE FEATURES ROUTES
-// ========================================
-app.use('/api/mydscvr', mydscvrRouter);
-
-// ========================================
-// PHOTO COMPLIANCE ROUTES
-// ========================================
-app.use('/api/photo', photoRouter);
-
-// ========================================
-// ONBOARDING ROUTES
-// ========================================
-app.use('/api/onboarding', onboardingRouter);
-
-// ========================================
-// PROFILE MANAGEMENT ROUTES (Form Filler)
-// ========================================
-app.use('/api/profile', profileRouter);
-
-// ========================================
-// AI FORM FILLER ROUTES
-// ========================================
-app.use('/api/form-filler', formFillerRouter);
-
-// ========================================
-// PAYMENT ROUTES
-// ========================================
-// Stripe checkout routes (TODO - implement Stripe integration)
-app.post('/api/checkout/create-session', requireAuth, async (_req, res) => {
-  res.json({ message: 'Create checkout session - TODO' });
-});
-
-// Stripe webhook (TODO - implement webhook handler)
-// NOTE: This must come BEFORE other routes to access raw body
-app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (_req, res) => {
-  res.json({ received: true });
-});
-
-// Error handling middleware
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('[Error]', err);
-
-  if (err.name === 'UnauthorizedError') {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-
-  res.status(500).json({
-    error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined,
-  });
-});
+// ============================================
+// ERROR HANDLING
+// ============================================
 
 // 404 handler
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Not found' });
-});
+app.use(notFoundHandler);
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`✅ HeadShotHub API running on http://localhost:${PORT}`);
-  console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🌐 CORS Origins: ${allowedOrigins.join(', ')}`);
-  console.log(`🔐 Session store: PostgreSQL`);
-});
+// Global error handler
+app.use(errorHandler);
+
+// ============================================
+// SERVER STARTUP
+// ============================================
+
+async function startServer(): Promise<void> {
+  try {
+    // Connect to database
+    await prisma.$connect();
+    logger.info('Database connected');
+
+    // Connect to Redis
+    await redis.ping();
+    logger.info('Redis connected');
+
+    // Initialize content processing queue
+    try {
+      initializeContentProcessor();
+    } catch (error) {
+      logger.warn('Content processor initialization skipped (Redis may not be available)');
+    }
+
+    // Initialize badges
+    try {
+      await badgeService.initializeBadges();
+      logger.info('Badges initialized');
+    } catch (error) {
+      logger.warn('Badge initialization skipped');
+    }
+
+    // Start server
+    const server = app.listen(config.port, () => {
+      logger.info(`NanoBanana K-6 Backend running on port ${config.port}`);
+      logger.info(`Environment: ${config.nodeEnv}`);
+      logger.info(`Frontend URL: ${config.frontendUrl}`);
+    });
+
+    // Graceful shutdown
+    const shutdown = async (signal: string) => {
+      logger.info(`${signal} received, shutting down gracefully...`);
+
+      server.close(async () => {
+        try {
+          await shutdownContentProcessor();
+          await prisma.$disconnect();
+          await redis.quit();
+          logger.info('Server shut down successfully');
+          process.exit(0);
+        } catch (error) {
+          logger.error('Error during shutdown', { error });
+          process.exit(1);
+        }
+      });
+
+      // Force shutdown after 30 seconds
+      setTimeout(() => {
+        logger.error('Forced shutdown after timeout');
+        process.exit(1);
+      }, 30000);
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+
+  } catch (error) {
+    logger.error('Failed to start server', { error });
+    process.exit(1);
+  }
+}
+
+startServer();
+
+export default app;
