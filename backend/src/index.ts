@@ -18,6 +18,14 @@ import { attachRequestId, requestLogger } from './middleware/requestLogger.js';
 // Routes
 import authRoutes from './routes/auth.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
+import childRoutes from './routes/child.routes.js';
+import profileRoutes from './routes/profile.routes.js';
+import parentRoutes from './routes/parent.routes.js';
+import lessonRoutes from './routes/lesson.routes.js';
+import chatRoutes from './routes/chat.routes.js';
+import flashcardRoutes from './routes/flashcard.routes.js';
+import quizRoutes from './routes/quiz.routes.js';
+import aiRoutes from './routes/ai.routes.js';
 
 // Services initialization
 import { initializeContentProcessor, shutdownContentProcessor } from './services/learning/contentProcessor.js';
@@ -36,6 +44,12 @@ const app = express();
 // ============================================
 // MIDDLEWARE SETUP
 // ============================================
+
+// Trust proxy - required for Railway/reverse proxy deployments
+// This allows express-rate-limit to correctly identify users via X-Forwarded-For
+if (config.isProduction) {
+  app.set('trust proxy', 1);
+}
 
 // Security headers
 app.use(helmet({
@@ -99,15 +113,17 @@ app.get('/health', async (_req, res) => {
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/children', childRoutes);
+app.use('/api/profiles', profileRoutes);
+app.use('/api/parent', parentRoutes);
+app.use('/api/lessons', lessonRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/flashcards', flashcardRoutes);
+app.use('/api/quizzes', quizRoutes);
+app.use('/api/ai', aiRoutes);
 
 // TODO: Add remaining routes as they're implemented
-// app.use('/api/children', childRoutes);
-// app.use('/api/lessons', lessonRoutes);
-// app.use('/api/chat', chatRoutes);
-// app.use('/api/flashcards', flashcardRoutes);
-// app.use('/api/quizzes', quizRoutes);
 // app.use('/api/gamification', gamificationRoutes);
-// app.use('/api/parent', parentRoutes);
 
 // ============================================
 // ERROR HANDLING
