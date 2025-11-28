@@ -27,6 +27,7 @@ export interface LoginResult {
     firstName: string | null;
     lastName: string | null;
     emailVerified: boolean;
+    consentStatus: 'none' | 'pending' | 'verified';
   };
   children: Array<{
     id: string;
@@ -96,7 +97,7 @@ export const authService = {
     deviceInfo?: string,
     ipAddress?: string
   ): Promise<LoginResult> {
-    // Find parent
+    // Find parent with consent status
     const parent = await prisma.parent.findUnique({
       where: { email: email.toLowerCase() },
       include: {
@@ -107,6 +108,17 @@ export const authService = {
             avatarUrl: true,
             ageGroup: true,
           },
+        },
+        consents: {
+          where: {
+            status: 'VERIFIED',
+            OR: [
+              { expiresAt: null },
+              { expiresAt: { gt: new Date() } },
+            ],
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
         },
       },
     });
@@ -122,14 +134,20 @@ export const authService = {
       throw new UnauthorizedError('Invalid email or password');
     }
 
-    // Generate tokens
-    const { accessToken, refreshToken, refreshTokenId } = tokenService.generateParentTokens(parent.id);
+    // Generate tokens (includes token family ID for rotation tracking)
+    const { accessToken, refreshToken, refreshTokenId, refreshTokenHash } = tokenService.generateParentTokens(parent.id);
 
-    // Create session
+    // Get the token family ID from the generated token
+    const tokenPayload = tokenService.verifyRefreshToken(refreshToken);
+    const tokenFamilyId = tokenPayload.fid || tokenService.generateTokenFamilyId();
+
+    // Create session with hashed token
     await sessionService.createSession({
       userId: parent.id,
       type: 'parent',
       refreshTokenId,
+      refreshTokenHash,
+      tokenFamilyId,
       deviceInfo,
       ipAddress,
     });
@@ -140,6 +158,10 @@ export const authService = {
       data: { lastLoginAt: new Date() },
     });
 
+    // Determine consent status
+    const hasVerifiedConsent = parent.consents && parent.consents.length > 0;
+    const consentStatus = hasVerifiedConsent ? 'verified' : 'none';
+
     return {
       accessToken,
       refreshToken,
@@ -149,6 +171,7 @@ export const authService = {
         firstName: parent.firstName,
         lastName: parent.lastName,
         emailVerified: parent.emailVerified,
+        consentStatus,
       },
       children: parent.children,
     };
@@ -156,6 +179,7 @@ export const authService = {
 
   /**
    * Refresh access token
+   * Implements token rotation with reuse detection
    */
   async refreshTokens(
     refreshToken: string
@@ -175,21 +199,36 @@ export const authService = {
       throw new UnauthorizedError('Session expired or revoked');
     }
 
-    // Invalidate old session
-    await sessionService.invalidateSession(payload.jti);
+    // Verify the refresh token hash matches (defense in depth)
+    const tokenHash = tokenService.hashRefreshToken(refreshToken);
+    if (session.refreshTokenHash && session.refreshTokenHash !== tokenHash) {
+      // Token tampering detected
+      logger.warn(`Refresh token hash mismatch for user ${session.userId}`);
+      await sessionService.invalidateTokenFamily(payload.fid || session.tokenFamilyId, session.userId);
+      throw new UnauthorizedError('Invalid refresh token');
+    }
 
-    // Generate new tokens
-    const tokens = tokenService.generateParentTokens(payload.sub);
+    // Get token family ID for rotation
+    const tokenFamilyId = payload.fid || session.tokenFamilyId;
 
-    // Create new session
-    await sessionService.createSession({
-      userId: session.userId,
-      type: session.type,
-      parentId: session.parentId,
-      refreshTokenId: tokens.refreshTokenId,
-      deviceInfo: session.deviceInfo,
-      ipAddress: session.ipAddress,
-    });
+    // Generate new tokens with same family ID (for rotation tracking)
+    const tokens = tokenService.generateParentTokens(payload.sub, tokenFamilyId);
+
+    // Rotate the session (this handles reuse detection)
+    const newSession = await sessionService.rotateSession(
+      payload.jti,
+      tokens.refreshTokenId,
+      tokens.refreshTokenHash,
+      tokenFamilyId
+    );
+
+    if (!newSession) {
+      // Rotation failed - likely due to token reuse detection
+      throw new UnauthorizedError('Session compromised. Please log in again.');
+    }
+
+    // Update session activity
+    await sessionService.updateSessionActivity(tokens.refreshTokenId);
 
     return {
       accessToken: tokens.accessToken,
@@ -354,9 +393,16 @@ export const authService = {
   },
 
   /**
-   * Verify email with OTP code
+   * Verify email with OTP code and return tokens to log user in
    */
-  async verifyEmail(email: string, code: string): Promise<{ success: boolean; error?: string }> {
+  async verifyEmail(email: string, code: string): Promise<{
+    success: boolean;
+    error?: string;
+    accessToken?: string;
+    refreshToken?: string;
+    parent?: any;
+    children?: any[];
+  }> {
     // Verify OTP
     const result = await otpService.verify(email, code, 'verify_email');
 
@@ -364,18 +410,70 @@ export const authService = {
       return { success: false, error: result.error };
     }
 
-    // Mark email as verified
-    await prisma.parent.update({
+    // Mark email as verified and get parent data
+    const parent = await prisma.parent.update({
       where: { email: email.toLowerCase() },
       data: {
         emailVerified: true,
         emailVerifiedAt: new Date(),
       },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        emailVerified: true,
+        subscriptionTier: true,
+        createdAt: true,
+      },
     });
 
-    logger.info(`Email verified for ${email}`);
+    // Check consent status from Consent table
+    const latestConsent = await prisma.consent.findFirst({
+      where: { parentId: parent.id },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    return { success: true };
+    // Get children
+    const children = await prisma.child.findMany({
+      where: { parentId: parent.id },
+      select: {
+        id: true,
+        displayName: true,
+        avatarUrl: true,
+        gradeLevel: true,
+        createdAt: true,
+      },
+    });
+
+    // Generate tokens using tokenService
+    const tokens = tokenService.generateParentTokens(parent.id);
+
+    // Get the token family ID from the generated token
+    const tokenPayload = tokenService.verifyRefreshToken(tokens.refreshToken);
+    const tokenFamilyId = tokenPayload.fid || tokenService.generateTokenFamilyId();
+
+    // Store refresh token session with hashed token
+    await sessionService.createSession({
+      userId: parent.id,
+      type: 'parent',
+      refreshTokenId: tokens.refreshTokenId,
+      refreshTokenHash: tokens.refreshTokenHash,
+      tokenFamilyId,
+    });
+
+    logger.info(`Email verified and logged in for ${email}`);
+
+    return {
+      success: true,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      parent: {
+        ...parent,
+        consentStatus: latestConsent?.status || 'none',
+      },
+      children,
+    };
   },
 
   /**
@@ -523,9 +621,10 @@ export const authService = {
     }
 
     const hasVerifiedConsent = parent.consents.length > 0;
+    const consentStatus = hasVerifiedConsent ? 'verified' : 'none';
 
     return {
-      parent: {
+      user: {
         id: parent.id,
         email: parent.email,
         firstName: parent.firstName,
@@ -536,7 +635,7 @@ export const authService = {
         emailVerified: parent.emailVerified,
         subscriptionTier: parent.subscriptionTier,
         subscriptionStatus: parent.subscriptionStatus,
-        hasVerifiedConsent,
+        consentStatus,
       },
       children: parent.children,
     };

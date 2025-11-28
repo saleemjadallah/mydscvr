@@ -19,9 +19,16 @@ export const config = {
 
   // Session & Auth
   sessionSecret: process.env.SESSION_SECRET!,
+  // Separate secrets for access and refresh tokens
+  jwtAccessSecret: process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET!,
+  jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET!,
+  // Legacy - kept for backward compatibility, prefer specific secrets above
   jwtSecret: process.env.JWT_SECRET || process.env.SESSION_SECRET!,
   jwtAccessExpiry: '15m',
   jwtRefreshExpiry: '7d',
+  // Cookie settings
+  cookieDomain: process.env.COOKIE_DOMAIN || undefined,
+  cookieSecure: process.env.NODE_ENV === 'production',
 
   // Cloudflare R2
   cloudflare: {
@@ -53,8 +60,12 @@ export const config = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY!,
     models: {
-      flash: 'gemini-1.5-flash',
-      pro: 'gemini-1.5-pro',
+      // Gemini 3 Pro - Most advanced model (November 2025)
+      pro: 'gemini-3-pro-preview',       // State-of-the-art reasoning with thinking
+      // Gemini 2.5 models for different use cases
+      flash: 'gemini-2.5-flash',         // Best price-performance, well-rounded
+      flashLite: 'gemini-2.5-flash-lite', // Fastest, cost-efficient
+      image: 'gemini-3-pro-image-preview', // Image generation with better text rendering
     },
   },
 
